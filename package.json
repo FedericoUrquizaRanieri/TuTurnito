@@ -1,0 +1,24 @@
+{
+  "name": "tuturnito",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma de gestión y reserva de turnos de pádel",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev --workspace=server",
+    "dev:web": "npm run dev --workspace=web",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
+    "build": "npm run build --workspace=server && npm run build --workspace=web",
+    "lint": "npm run lint --workspace=server && npm run lint --workspace=web",
+    "test": "npm run test --workspace=server",
+    "prisma:generate": "npm run prisma:generate --workspace=server",
+    "prisma:migrate": "npm run prisma:migrate --workspace=server",
+    "seed": "npm run seed --workspace=server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

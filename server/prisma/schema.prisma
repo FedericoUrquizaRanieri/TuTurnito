@@ -1,0 +1,205 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  JUGADOR
+  DUEÑO
+  PROFESOR
+}
+
+enum TurnState {
+  AVAILABLE
+  OCCUPIED
+  BLOCKED
+}
+
+enum CellAvailability {
+  AVAILABLE
+  BLOCKED
+}
+
+enum ReservationType {
+  PLAYER
+  CLASS
+}
+
+enum PaymentStatus {
+  PAID
+  PENDING
+}
+
+enum PayableType {
+  RESERVATION
+  STUDENT_CLASS
+}
+
+enum ProfessorRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         Role
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relationships
+  ownedComplexes    Complex[]          @relation("OwnerComplexes")
+  reservations      Reservation[]      @relation("UserReservations")
+  professorClasses  Reservation[]      @relation("ProfessorClasses")
+  recordedPayments  Payment[]          @relation("RecordedPayments")
+  professorRequests ProfessorRequest[] @relation("ProfessorRequests")
+  complexLinks      ProfessorComplex[] @relation("ProfessorComplexLinks")
+  students          Student[]          @relation("ProfessorStudents")
+}
+
+model Complex {
+  id           String    @id @default(uuid())
+  name         String
+  location     String    // Ciudad / Zona (ej: "Bahía Blanca", "Palermo, CABA")
+  address      String    // Dirección exacta (ej: "Av. Alem 1234")
+  description  String?
+  phone        String?
+  openingHours String?   // ej: "Lun a Dom 08:00 - 23:30"
+  timezone     String    @default("America/Argentina/Buenos_Aires")
+  imageUrl     String?
+  ownerId      String
+  owner        User      @relation("OwnerComplexes", fields: [ownerId], references: [id], onDelete: Cascade)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relationships
+  courts            Court[]
+  reservations      Reservation[]
+  professorRequests ProfessorRequest[]
+  professorLinks    ProfessorComplex[]
+}
+
+model Court {
+  id         String   @id @default(uuid())
+  complexId  String
+  complex    Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  name       String   // ej: "Cancha 1 Cristal", "Cancha 2 Panorámica"
+  order      Int      @default(0)
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  templateCells TemplateCell[]
+  turns         Turn[]
+}
+
+model TemplateCell {
+  id           String           @id @default(uuid())
+  courtId      String
+  court        Court            @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  dayOfWeek    Int              // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+  startTime    String           // "08:00", "09:30", etc.
+  endTime      String           // "09:30", "11:00", etc.
+  price        Float
+  availability CellAvailability @default(AVAILABLE)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([courtId, dayOfWeek, startTime])
+}
+
+model Turn {
+  id           String    @id @default(uuid())
+  courtId      String
+  court        Court     @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  date         String    // "YYYY-MM-DD"
+  startTime    String    // "08:00"
+  endTime      String    // "09:30"
+  price        Float
+  state        TurnState @default(AVAILABLE)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  reservation Reservation?
+
+  @@unique([courtId, date, startTime])
+}
+
+model Reservation {
+  id          String          @id @default(uuid())
+  turnId      String          @unique
+  turn        Turn            @relation(fields: [turnId], references: [id], onDelete: Cascade)
+  complexId   String
+  complex     Complex         @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?           @relation("UserReservations", fields: [userId], references: [id], onDelete: SetNull)
+  guestName   String
+  guestPhone  String
+  guestEmail  String?
+  type        ReservationType @default(PLAYER)
+  professorId String?
+  professor   User?           @relation("ProfessorClasses", fields: [professorId], references: [id], onDelete: SetNull)
+  notes       String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model Payment {
+  id           String        @id @default(uuid())
+  payableType  PayableType
+  payableId    String        // ID de Reservation o ID de Student
+  amount       Float
+  status       PaymentStatus @default(PENDING)
+  date         String        // "YYYY-MM-DD"
+  recordedById String
+  recordedBy   User          @relation("RecordedPayments", fields: [recordedById], references: [id], onDelete: Cascade)
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([payableType, payableId])
+}
+
+model ProfessorRequest {
+  id          String                 @id @default(uuid())
+  professorId String
+  professor   User                   @relation("ProfessorRequests", fields: [professorId], references: [id], onDelete: Cascade)
+  complexId   String
+  complex     Complex                @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  status      ProfessorRequestStatus @default(PENDING)
+  requestedAt DateTime               @default(now())
+  resolvedAt  DateTime?
+}
+
+model ProfessorComplex {
+  id          String   @id @default(uuid())
+  professorId String
+  professor   User     @relation("ProfessorComplexLinks", fields: [professorId], references: [id], onDelete: Cascade)
+  complexId   String
+  complex     Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  active      Boolean  @default(true)
+  joinedAt    DateTime @default(now())
+
+  @@unique([professorId, complexId])
+}
+
+model Student {
+  id          String   @id @default(uuid())
+  professorId String
+  professor   User     @relation("ProfessorStudents", fields: [professorId], references: [id], onDelete: Cascade)
+  name        String
+  phone       String
+  email       String?
+  notes       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
