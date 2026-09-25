@@ -1,0 +1,37 @@
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import { Navbar } from './components/Navbar';
+import { Footer } from './components/Footer';
+import { HomePage } from './pages/HomePage';
+import { ComplexDetailPage } from './pages/ComplexDetailPage';
+import { OwnerDashboardPage } from './pages/OwnerDashboardPage';
+import { ProfessorDashboardPage } from './pages/ProfessorDashboardPage';
+import { MyReservationsPage } from './pages/MyReservationsPage';
+import { AuthPage } from './pages/AuthPage';
+import { ProfilePage } from './pages/ProfilePage';
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <BrowserRouter>
+        <div className="app-container">
+          <Navbar />
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/complexes/:id" element={<ComplexDetailPage />} />
+            <Route path="/my-reservations" element={<MyReservationsPage />} />
+            <Route path="/owner" element={<OwnerDashboardPage />} />
+            <Route path="/professor" element={<ProfessorDashboardPage />} />
+            <Route path="/auth" element={<AuthPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+          <Footer />
+        </div>
+      </BrowserRouter>
+    </AuthProvider>
+  );
+};
+
+export default App;
