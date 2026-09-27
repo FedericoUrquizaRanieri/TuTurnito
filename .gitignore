@@ -9,7 +9,6 @@ build/
 .env
 .env.*
 !.env.example
-!.env.test
 
 # Database
 *.db
