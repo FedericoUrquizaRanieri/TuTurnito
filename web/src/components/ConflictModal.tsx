@@ -18,8 +18,21 @@ interface ConflictModalProps {
   loading: boolean;
 }
 
+// Copy for each kind of conflict the courts save can report.
+const COPY: Record<string, { keep: string; cancel: string }> = {
+  COURT_DELETION: {
+    keep: 'Eliminar la cancha de todas formas',
+    cancel: 'Cancelar estas reservas y eliminar la cancha',
+  },
+  RANGE_CHANGE: {
+    keep: 'Conservar estas reservas y aplicar el nuevo horario al resto',
+    cancel: 'Cancelar estas reservas y aplicar el nuevo horario',
+  },
+};
+
 export const ConflictModal: React.FC<ConflictModalProps> = ({
   conflicts,
+  conflictType,
   onResolve,
   onClose,
   loading,
@@ -102,7 +115,9 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
         </div>
 
         <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-          ¿Cómo deseas resolver este conflicto antes de persistir los cambios en el Excel de canchas?
+          {conflictType === 'COURT_DELETION'
+            ? 'Al eliminar una cancha se eliminan también sus reservas. ¿Cómo querés continuar?'
+            : '¿Cómo querés resolver este conflicto antes de guardar los cambios de canchas?'}
         </p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -113,7 +128,7 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             style={{ width: '100%', justifyContent: 'center' }}
           >
             <CheckCircle2 size={18} />
-            <span>Conservar reservas existentes y bloquear turnos libres</span>
+            <span>{(COPY[conflictType] || COPY.RANGE_CHANGE).keep}</span>
           </button>
 
           <button
@@ -123,7 +138,7 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             style={{ width: '100%', justifyContent: 'center' }}
           >
             <Trash2 size={18} />
-            <span>Cancelar estas reservas y aplicar bloqueo total</span>
+            <span>{(COPY[conflictType] || COPY.RANGE_CHANGE).cancel}</span>
           </button>
 
           <button

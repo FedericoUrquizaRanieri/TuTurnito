@@ -47,10 +47,10 @@ export const Footer: React.FC = () => {
               Para Complejos y Profesores
             </h4>
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
-              <li>"Excel de Canchas" Editable en vivo</li>
+              <li>Panel de Reservas con grilla en vivo</li>
               <li>Registro y control manual de cobros</li>
               <li>Gestión de alumnos y saldos de clase</li>
-              <li>Exportación / Importación .xlsx</li>
+              <li>Turnos fijos y torneos</li>
             </ul>
           </div>
         </div>

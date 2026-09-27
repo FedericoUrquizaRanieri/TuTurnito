@@ -35,6 +35,8 @@
   --status-blocked-bg: rgba(239, 93, 99, 0.14);
   --status-pending: #f2a53d;
   --status-pending-bg: rgba(242, 165, 61, 0.16);
+  --status-tournament: #a78bfa;
+  --status-tournament-bg: rgba(167, 139, 250, 0.14);
 
   --shadow-sm: 0 2px 10px rgba(2, 7, 16, 0.35);
   --shadow-md: 0 8px 24px rgba(2, 7, 16, 0.4);
@@ -266,6 +268,12 @@ button {
   background: var(--status-blocked-bg);
   color: #ff8489;
   border: 1px solid rgba(239, 93, 99, 0.35);
+}
+
+.badge-tournament {
+  background: var(--status-tournament-bg);
+  color: #c4b5fd;
+  border: 1px solid rgba(167, 139, 250, 0.35);
 }
 
 .badge-paid {
@@ -739,3 +747,198 @@ button {
     padding: 3.5rem 0 3rem;
   }
 }
+
+/* ---------------------------------------------------------------
+   Owner "Panel de Reservas" grid: courts x time slots for one date.
+   Each cell is a button tinted by the turn state, with a left edge
+   stripe in the state color so it still reads without color text.
+   --------------------------------------------------------------- */
+.og-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.og-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.og-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--og-color);
+}
+
+.og-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  box-shadow: var(--shadow-md);
+}
+
+.og-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.og-table th {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 0.75rem 0.4rem;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.og-table td {
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 1px solid var(--border-subtle);
+  padding: 0.35rem;
+  vertical-align: top;
+}
+
+.og-table .og-court {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-card);
+  border-left: none;
+  padding: 0.75rem 1rem;
+  min-width: 150px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.og-table th.og-court {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+}
+
+.og-cell {
+  --og-color: var(--status-available);
+  --og-bg: rgba(52, 199, 149, 0.06);
+  width: 100%;
+  min-width: 112px;
+  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0.45rem 0.55rem;
+  background: var(--og-bg);
+  border: 1px solid transparent;
+  border-left: 3px solid var(--og-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.og-cell:hover {
+  border-color: var(--og-color);
+}
+
+.og-cell:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 1px;
+}
+
+.og-cell-title {
+  font-weight: 700;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.og-cell-sub {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}
+
+.og-available { --og-color: var(--status-available); --og-bg: rgba(52, 199, 149, 0.06); }
+.og-occupied { --og-color: var(--accent-primary); --og-bg: rgba(58, 122, 240, 0.12); }
+.og-class { --og-color: var(--accent-cyan); --og-bg: rgba(43, 179, 163, 0.12); }
+.og-fixed { --og-color: var(--accent-secondary); --og-bg: rgba(242, 165, 61, 0.1); }
+.og-tournament { --og-color: var(--status-tournament); --og-bg: var(--status-tournament-bg); }
+.og-blocked { --og-color: var(--status-blocked); --og-bg: rgba(239, 93, 99, 0.08); }
+
+.og-past .og-cell {
+  opacity: 0.7;
+}
+
+.og-empty {
+  min-height: 68px;
+  border-radius: var(--radius-sm);
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(244, 246, 241, 0.03) 6px,
+    rgba(244, 246, 241, 0.03) 12px
+  );
+}
+
+.date-pill {
+  min-width: 78px;
+  padding: 0.65rem 0.5rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-main);
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.date-pill.is-past {
+  opacity: 0.55;
+}
+
+.date-pill.is-today {
+  border-color: var(--border-active);
+}
+
+.date-pill.is-selected {
+  background: var(--accent-secondary);
+  color: var(--text-inverse);
+  border-color: transparent;
+  box-shadow: var(--shadow-glow-lime);
+  opacity: 1;
+}
+
+.panel-section-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.panel-section-sub {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+

@@ -1,19 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
-import { ScheduleGrid, CourtData } from '../components/ScheduleGrid';
+import { OwnerReservationGrid } from '../components/owner/OwnerReservationGrid';
+import { FixedBookingsPanel } from '../components/owner/FixedBookingsPanel';
+import { CourtsConfigPanel } from '../components/owner/CourtsConfigPanel';
 import { StatCard } from '../components/StatCard';
 import { EmptyState } from '../components/EmptyState';
 import { RoleGateCard } from '../components/RoleGateCard';
-import { PaymentStatusBadge } from '../components/PaymentStatusBadge';
 import {
   LayoutDashboard,
-  DollarSign,
   Users,
   Building,
   CheckCircle,
   Clock,
-  Trash2,
   Plus,
   Save,
   GraduationCap,
@@ -21,15 +20,16 @@ import {
   Check,
   X as XIcon,
   CheckCircle2,
-  User as UserIcon
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import type { ComplexSummary, Complex, OwnerReservationView, ProfessorRequest } from '../types';
+import type { ComplexSummary, Complex, Court, FixedBooking, ProfessorRequest } from '../types';
+import type { ReservationStats } from '../api/client';
+import { todayStr, weekRange, shortDateLabel } from '../lib/dates';
 
 export const OwnerDashboardPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'SCHEDULE' | 'PAYMENTS' | 'PROFESSORS' | 'SETTINGS'>('SCHEDULE');
+  const [activeTab, setActiveTab] = useState<'RESERVATIONS' | 'PROFESSORS' | 'SETTINGS'>('RESERVATIONS');
   const [selectedComplexId, setSelectedComplexId] = useState<string>('');
 
   // Complexes owned
@@ -47,14 +47,14 @@ export const OwnerDashboardPage: React.FC = () => {
     imageUrl: '',
   });
 
-  // Schedule state
-  const [courts, setCourts] = useState<CourtData[]>([]);
-  const [loadingSchedule, setLoadingSchedule] = useState(false);
-
-  // Payments / Reservations state
-  const [reservations, setReservations] = useState<OwnerReservationView[]>([]);
-  const [paymentStats, setPaymentStats] = useState({ totalReservations: 0, totalCollected: 0, totalPending: 0 });
-  const [paymentFilter, setPaymentFilter] = useState<'ALL' | 'PAID' | 'PENDING'>('ALL');
+  // Panel de Reservas state: courts + fixed bookings (config sub-panels),
+  // this week's payment totals, and a key that forces the grid to reload
+  // when something outside it (courts, fixed bookings) changes.
+  const [courts, setCourts] = useState<Court[]>([]);
+  const [fixedBookings, setFixedBookings] = useState<FixedBooking[]>([]);
+  const [weekStats, setWeekStats] = useState<ReservationStats>({ totalReservations: 0, totalCollected: 0, totalPending: 0 });
+  const [gridRefreshKey, setGridRefreshKey] = useState(0);
+  const week = weekRange(todayStr());
 
   // Professor requests state
   const [profRequests, setProfRequests] = useState<ProfessorRequest[]>([]);
@@ -116,32 +116,36 @@ export const OwnerDashboardPage: React.FC = () => {
 
     fetchComplexDetail();
     loadScheduleData();
-    loadReservationsData();
+    loadWeekStats();
     loadProfessorRequests();
   }, [selectedComplexId]);
 
   const loadScheduleData = async () => {
     if (!selectedComplexId) return;
-    setLoadingSchedule(true);
     try {
       const res = await api.schedules.get(selectedComplexId);
       setCourts(res.courts || []);
+      setFixedBookings(res.fixedBookings || []);
     } catch (err) {
-      console.error('Error loading schedule:', err);
-    } finally {
-      setLoadingSchedule(false);
+      console.error('Error loading courts:', err);
     }
   };
 
-  const loadReservationsData = async () => {
+  const loadWeekStats = useCallback(async () => {
     if (!selectedComplexId) return;
     try {
-      const res = await api.reservations.getComplexReservations(selectedComplexId);
-      setReservations(res.reservations || []);
-      setPaymentStats(res.stats || { totalReservations: 0, totalCollected: 0, totalPending: 0 });
+      const res = await api.reservations.getComplexReservations(selectedComplexId, { from: week.from, to: week.to });
+      setWeekStats(res.stats || { totalReservations: 0, totalCollected: 0, totalPending: 0 });
     } catch (err) {
-      console.error('Error loading reservations:', err);
+      console.error('Error loading weekly payments:', err);
     }
+  }, [selectedComplexId, week.from, week.to]);
+
+  // Courts or fixed bookings changed: reload them, the grid and the totals.
+  const handleConfigChanged = () => {
+    loadScheduleData();
+    loadWeekStats();
+    setGridRefreshKey((k) => k + 1);
   };
 
   const loadProfessorRequests = async () => {
@@ -166,27 +170,6 @@ export const OwnerDashboardPage: React.FC = () => {
       setSelectedComplexId(res.complex.id);
     } catch (err: any) {
       alert(err.message || 'Error al crear complejo');
-    }
-  };
-
-  const handleTogglePayment = async (reservationId: string, currentStatus: string) => {
-    const nextStatus = currentStatus === 'PAID' ? 'PENDING' : 'PAID';
-    try {
-      await api.reservations.updatePayment(reservationId, { status: nextStatus });
-      loadReservationsData();
-    } catch (err: any) {
-      alert(err.message || 'Error al actualizar pago');
-    }
-  };
-
-  const handleCancelReservation = async (reservationId: string) => {
-    if (!confirm('¿Estás seguro de cancelar esta reserva y liberar el turno?')) return;
-    try {
-      await api.reservations.cancel(reservationId);
-      loadReservationsData();
-      loadScheduleData();
-    } catch (err: any) {
-      alert(err.message || 'Error al cancelar reserva');
     }
   };
 
@@ -220,7 +203,7 @@ export const OwnerDashboardPage: React.FC = () => {
       <RoleGateCard
         icon={<ShieldCheck size={48} color="#38bdf8" />}
         title="Acceso Exclusivo para Dueños"
-        description="Inicia sesión con una cuenta de Dueño de Complejo para administrar el Excel de Canchas y los cobros."
+        description="Inicia sesión con una cuenta de Dueño de Complejo para administrar el Panel de Reservas y los cobros."
         cta="Iniciar Sesión como Dueño"
         ctaHref="/auth?mode=login"
       />
@@ -250,7 +233,7 @@ export const OwnerDashboardPage: React.FC = () => {
               Registra tu Complejo de Pádel
             </h2>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '0.5rem' }}>
-              Completa los datos de tu club para crear tu primer "Excel de Canchas" y comenzar a recibir reservas.
+              Completa los datos de tu club para abrir tu Panel de Reservas y comenzar a recibir reservas.
             </p>
           </div>
 
@@ -329,19 +312,13 @@ export const OwnerDashboardPage: React.FC = () => {
 
             <button type="submit" className="btn btn-lime btn-lg" style={{ width: '100%', marginTop: '0.5rem' }}>
               <Plus size={18} />
-              <span>Crear Complejo y Abrir Excel de Canchas</span>
+              <span>Crear Complejo y Abrir Panel de Reservas</span>
             </button>
           </form>
         </div>
       </div>
     );
   }
-
-  const filteredReservations = reservations.filter((r) => {
-    if (paymentFilter === 'PAID') return r.paymentStatus === 'PAID';
-    if (paymentFilter === 'PENDING') return r.paymentStatus === 'PENDING';
-    return true;
-  });
 
   return (
     <div className="main-content">
@@ -393,19 +370,11 @@ export const OwnerDashboardPage: React.FC = () => {
           {/* Navigation Tabs */}
           <div className="tabs-header" style={{ marginTop: '1.75rem', marginBottom: 0 }}>
             <button
-              className={`tab-btn ${activeTab === 'SCHEDULE' ? 'active' : ''}`}
-              onClick={() => setActiveTab('SCHEDULE')}
+              className={`tab-btn ${activeTab === 'RESERVATIONS' ? 'active' : ''}`}
+              onClick={() => setActiveTab('RESERVATIONS')}
             >
               <LayoutDashboard size={16} />
-              <span>Excel de Canchas</span>
-            </button>
-
-            <button
-              className={`tab-btn ${activeTab === 'PAYMENTS' ? 'active' : ''}`}
-              onClick={() => setActiveTab('PAYMENTS')}
-            >
-              <DollarSign size={16} />
-              <span>Cobros y Reservas ({reservations.length})</span>
+              <span>Panel de Reservas</span>
             </button>
 
             <button
@@ -429,163 +398,67 @@ export const OwnerDashboardPage: React.FC = () => {
 
       {/* Main Tab Content */}
       <section className="container" style={{ paddingTop: '2rem' }}>
-        {/* TAB 1: EXCEL DE CANCHAS */}
-        {activeTab === 'SCHEDULE' && (
-          <div>
-            {loadingSchedule ? (
-              <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--text-muted)' }}>
-                Cargando grilla semanal...
+        {/* TAB 1: PANEL DE RESERVAS (grilla + cobros de la semana + turnos fijos + canchas) */}
+        {activeTab === 'RESERVATIONS' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2.25rem' }}>
+            <OwnerReservationGrid
+              key={selectedComplexId}
+              complexId={selectedComplexId}
+              refreshKey={gridRefreshKey}
+              onChanged={loadWeekStats}
+            />
+
+            {/* Cobros de esta semana */}
+            <div>
+              <div style={{ marginBottom: '1rem' }}>
+                <h3 className="panel-section-title">Cobros de esta semana</h3>
+                <p className="panel-section-sub">
+                  {shortDateLabel(week.from)} al {shortDateLabel(week.to)} · el cobro de cada reserva se marca desde la grilla.
+                </p>
               </div>
-            ) : (
-              <ScheduleGrid
-                mode="EDIT"
-                complexId={selectedComplexId}
-                initialCourts={courts}
-                onSaved={() => {
-                  loadScheduleData();
-                  loadReservationsData();
-                }}
-              />
-            )}
-          </div>
-        )}
-
-        {/* TAB 2: GESTIÓN DE COBROS Y RESERVAS */}
-        {activeTab === 'PAYMENTS' && (
-          <div>
-            {/* Financial Summary KPI Cards */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: '1.25rem',
-              marginBottom: '2rem',
-            }}>
-              <StatCard
-                icon={<CheckCircle size={24} />}
-                iconBg="rgba(16, 185, 129, 0.15)"
-                iconColor="var(--accent-primary)"
-                label="Total Recaudado"
-                value={`$${paymentStats.totalCollected.toLocaleString('es-AR')}`}
-                valueColor="var(--accent-primary)"
-              />
-              <StatCard
-                icon={<Clock size={24} />}
-                iconBg="rgba(245, 158, 11, 0.15)"
-                iconColor="#fbbf24"
-                label="Pendiente de Cobro"
-                value={`$${paymentStats.totalPending.toLocaleString('es-AR')}`}
-                valueColor="#fbbf24"
-              />
-              <StatCard
-                icon={<Users size={24} />}
-                iconBg="rgba(6, 182, 212, 0.15)"
-                iconColor="var(--accent-cyan)"
-                label="Total de Reservas"
-                value={paymentStats.totalReservations}
-              />
-            </div>
-
-            {/* Filter Buttons */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              marginBottom: '1.25rem',
-              flexWrap: 'wrap',
-              gap: '1rem',
-            }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 800 }}>Listado de Reservas del Complejo</h3>
-
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button
-                  className={`btn btn-sm ${paymentFilter === 'ALL' ? 'btn-lime' : 'btn-secondary'}`}
-                  onClick={() => setPaymentFilter('ALL')}
-                >
-                  Todas ({reservations.length})
-                </button>
-                <button
-                  className={`btn btn-sm ${paymentFilter === 'PENDING' ? 'btn-lime' : 'btn-secondary'}`}
-                  onClick={() => setPaymentFilter('PENDING')}
-                >
-                  Pendientes ({reservations.filter((r) => r.paymentStatus === 'PENDING').length})
-                </button>
-                <button
-                  className={`btn btn-sm ${paymentFilter === 'PAID' ? 'btn-lime' : 'btn-secondary'}`}
-                  onClick={() => setPaymentFilter('PAID')}
-                >
-                  Pagadas ({reservations.filter((r) => r.paymentStatus === 'PAID').length})
-                </button>
-              </div>
-            </div>
-
-            {/* Reservations Table */}
-            {filteredReservations.length === 0 ? (
-              <EmptyState message="No hay reservas para mostrar con el filtro seleccionado." />
-            ) : (
               <div style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-subtle)',
-                borderRadius: 'var(--radius-lg)',
-                overflowX: 'auto',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                gap: '1.25rem',
               }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '750px' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                      <th style={{ padding: '1rem' }}>FECHA Y HORA</th>
-                      <th style={{ padding: '1rem' }}>CANCHA</th>
-                      <th style={{ padding: '1rem' }}>JUGADOR / CONTACTO</th>
-                      <th style={{ padding: '1rem' }}>TIPO</th>
-                      <th style={{ padding: '1rem' }}>MONTO</th>
-                      <th style={{ padding: '1rem' }}>ESTADO COBRO</th>
-                      <th style={{ padding: '1rem', textAlign: 'right' }}>ACCIONES</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredReservations.map((res) => {
-                      return (
-                        <tr key={res.id} style={{ borderBottom: '1px solid var(--border-subtle)', fontSize: '0.875rem' }}>
-                          <td style={{ padding: '1rem' }}>
-                            <div style={{ fontWeight: 700, color: '#ffffff' }}>{res.date}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.time} hs</div>
-                          </td>
-                          <td style={{ padding: '1rem', fontWeight: 600 }}>{res.courtName}</td>
-                          <td style={{ padding: '1rem' }}>
-                            <div style={{ fontWeight: 600 }}>{res.guestName}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{res.guestPhone}</div>
-                          </td>
-                          <td style={{ padding: '1rem' }}>
-                            <span className="badge badge-role" style={{ fontSize: '0.7rem', gap: '0.3rem' }}>
-                              {res.type === 'CLASS' ? (<><GraduationCap size={11} /> Clase</>) : (<><UserIcon size={11} /> Jugador</>)}
-                            </span>
-                          </td>
-                          <td style={{ padding: '1rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>
-                            ${res.paymentAmount.toLocaleString('es-AR')}
-                          </td>
-                          <td style={{ padding: '1rem' }}>
-                            <PaymentStatusBadge
-                              status={res.paymentStatus}
-                              onClick={() => handleTogglePayment(res.id, res.paymentStatus)}
-                              paidIcon={<Check size={12} />}
-                            />
-                          </td>
-                          <td style={{ padding: '1rem', textAlign: 'right' }}>
-                            <button
-                              onClick={() => handleCancelReservation(res.id)}
-                              className="btn btn-danger btn-sm"
-                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                              title="Cancelar reserva y liberar turno"
-                            >
-                              <Trash2 size={13} />
-                              <span>Cancelar</span>
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <StatCard
+                  icon={<CheckCircle size={24} />}
+                  iconBg="rgba(16, 185, 129, 0.15)"
+                  iconColor="var(--accent-primary)"
+                  label="Recaudado esta semana"
+                  value={`$${weekStats.totalCollected.toLocaleString('es-AR')}`}
+                  valueColor="var(--accent-primary)"
+                />
+                <StatCard
+                  icon={<Clock size={24} />}
+                  iconBg="rgba(245, 158, 11, 0.15)"
+                  iconColor="#fbbf24"
+                  label="Pendiente esta semana"
+                  value={`$${weekStats.totalPending.toLocaleString('es-AR')}`}
+                  valueColor="#fbbf24"
+                />
+                <StatCard
+                  icon={<Users size={24} />}
+                  iconBg="rgba(6, 182, 212, 0.15)"
+                  iconColor="var(--accent-cyan)"
+                  label="Reservas esta semana"
+                  value={weekStats.totalReservations}
+                />
               </div>
-            )}
+            </div>
+
+            <FixedBookingsPanel
+              complexId={selectedComplexId}
+              courts={courts}
+              fixedBookings={fixedBookings}
+              onChanged={handleConfigChanged}
+            />
+
+            <CourtsConfigPanel
+              complexId={selectedComplexId}
+              courts={courts}
+              onSaved={handleConfigChanged}
+            />
           </div>
         )}
 

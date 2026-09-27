@@ -17,11 +17,7 @@ enum TurnState {
   AVAILABLE
   OCCUPIED
   BLOCKED
-}
-
-enum CellAvailability {
-  AVAILABLE
-  BLOCKED
+  TOURNAMENT
 }
 
 enum ReservationType {
@@ -85,6 +81,7 @@ model Complex {
   reservations      Reservation[]
   professorRequests ProfessorRequest[]
   professorLinks    ProfessorComplex[]
+  fixedBookings     FixedBooking[]
 }
 
 model Court {
@@ -94,26 +91,17 @@ model Court {
   name       String   // ej: "Cancha 1 Cristal", "Cancha 2 Panorámica"
   order      Int      @default(0)
   active     Boolean  @default(true)
+  // Rango horario de la cancha: la grilla de turnos se genera desde openTime
+  // hasta closeTime en bloques de slotMinutes, todos los días igual.
+  openTime    String   @default("08:00") // "HH:MM"
+  closeTime   String   @default("23:00") // "HH:MM" ("24:00" = medianoche)
+  slotMinutes Int      @default(90)
+  basePrice   Float    @default(12000)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  templateCells TemplateCell[]
   turns         Turn[]
-}
-
-model TemplateCell {
-  id           String           @id @default(uuid())
-  courtId      String
-  court        Court            @relation(fields: [courtId], references: [id], onDelete: Cascade)
-  dayOfWeek    Int              // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
-  startTime    String           // "08:00", "09:30", etc.
-  endTime      String           // "09:30", "11:00", etc.
-  price        Float
-  availability CellAvailability @default(AVAILABLE)
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-
-  @@unique([courtId, dayOfWeek, startTime])
+  fixedBookings FixedBooking[]
 }
 
 model Turn {
@@ -125,6 +113,10 @@ model Turn {
   endTime      String    // "09:30"
   price        Float
   state        TurnState @default(AVAILABLE)
+  // true cuando el dueño cambió estado/precio a mano (o canceló una
+  // ocurrencia de un turno fijo): la sincronización automática no lo pisa.
+  manualOverride Boolean @default(false)
+  label        String?   // Nombre del torneo / nota del dueño
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -148,8 +140,32 @@ model Reservation {
   professorId String?
   professor   User?           @relation("ProfessorClasses", fields: [professorId], references: [id], onDelete: SetNull)
   notes       String?
+  fixedBookingId String?
+  fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id], onDelete: SetNull)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+}
+
+// Turno fijo: mismo día y horario todas las semanas. Cada ocurrencia se
+// materializa como una Reservation real (con su Payment) al generar turnos.
+model FixedBooking {
+  id         String   @id @default(uuid())
+  complexId  String
+  complex    Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  courtId    String
+  court      Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int      // 0 = Domingo ... 6 = Sábado
+  startTime  String   // "HH:MM"
+  guestName  String
+  guestPhone String
+  notes      String?
+  startDate  String   // "YYYY-MM-DD"
+  endDate    String?  // "YYYY-MM-DD"
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  reservations Reservation[]
 }
 
 model Payment {

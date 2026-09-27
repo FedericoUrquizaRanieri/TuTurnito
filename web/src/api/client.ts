@@ -1,8 +1,10 @@
 import type {
   Complex,
   ComplexSummary,
-  CourtWithTemplate,
+  Court,
+  FixedBooking,
   Turn,
+  OwnerTurn,
   Reservation,
   ScheduleConflict,
   OwnerReservationView,
@@ -50,8 +52,6 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
 
   if (contentType && contentType.includes('application/json')) {
     data = await response.json();
-  } else if (contentType && contentType.includes('spreadsheetml')) {
-    return (await response.blob()) as any;
   } else {
     data = await response.text();
   }
@@ -84,12 +84,28 @@ interface AuthResponse {
   token: string;
 }
 
-interface SaveScheduleResult {
+interface SaveCourtsResult {
   message: string;
   success?: boolean;
   hasConflicts?: boolean;
-  conflictType?: 'COURT_DELETION' | 'CELL_BLOCKED';
+  conflictType?: 'COURT_DELETION' | 'RANGE_CHANGE';
   conflicts?: ScheduleConflict[];
+}
+
+export interface CourtInput {
+  id?: string;
+  name: string;
+  order?: number;
+  openTime: string;
+  closeTime: string;
+  slotMinutes: number;
+  basePrice: number;
+}
+
+export interface ReservationStats {
+  totalReservations: number;
+  totalCollected: number;
+  totalPending: number;
 }
 
 interface CreateReservationResponse {
@@ -127,23 +143,46 @@ export const api = {
       request<{ message: string; complex: Complex }>(`/complexes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
 
-  // Schedules ("Excel de canchas")
+  // Schedules (Panel de Reservas: courts, their ranges and the owner grid)
   schedules: {
-    get: (complexId: string) => request<{ courts: CourtWithTemplate[] }>(`/complexes/${complexId}/schedule`),
-    save: (complexId: string, payload: any) =>
-      request<SaveScheduleResult>(`/complexes/${complexId}/schedule`, { method: 'PUT', body: JSON.stringify(payload) }),
-    exportExcel: (complexId: string) => request<Blob>(`/complexes/${complexId}/schedule/export`),
-    importExcel: (complexId: string, fileBase64: string) =>
-      request<{ message: string }>(`/complexes/${complexId}/schedule/import`, {
-        method: 'POST',
-        body: JSON.stringify({ fileBase64 }),
-      }),
+    get: (complexId: string) =>
+      request<{ courts: Court[]; fixedBookings: FixedBooking[] }>(`/complexes/${complexId}/schedule`),
+    saveCourts: (complexId: string, payload: { courts: CourtInput[]; resolveConflicts?: 'KEEP' | 'CANCEL' }) =>
+      request<SaveCourtsResult>(`/complexes/${complexId}/courts`, { method: 'PUT', body: JSON.stringify(payload) }),
+    getOwnerTurns: (complexId: string, fromDate: string, toDate: string) =>
+      request<{ courts: Court[]; turns: OwnerTurn[] }>(`/complexes/${complexId}/owner-turns?from=${fromDate}&to=${toDate}`),
   },
 
   // Turns & Public Calendar
   turns: {
     getByDateRange: (complexId: string, fromDate: string, toDate: string) =>
       request<{ turns: Turn[] }>(`/complexes/${complexId}/turns?from=${fromDate}&to=${toDate}`),
+    update: (
+      complexId: string,
+      turnId: string,
+      body: { state?: 'AVAILABLE' | 'BLOCKED' | 'TOURNAMENT'; price?: number; label?: string | null }
+    ) =>
+      request<{ message: string; turn: Turn }>(`/complexes/${complexId}/turns/${turnId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }),
+  },
+
+  // Fixed bookings (turnos fijos)
+  fixedBookings: {
+    list: (complexId: string) => request<{ fixedBookings: FixedBooking[] }>(`/complexes/${complexId}/fixed-bookings`),
+    create: (
+      complexId: string,
+      body: { courtId: string; dayOfWeek: number; startTime: string; guestName: string; guestPhone: string; notes?: string; startDate?: string; endDate?: string }
+    ) =>
+      request<{ message: string; fixedBooking: FixedBooking; skippedDates: string[] }>(`/complexes/${complexId}/fixed-bookings`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    remove: (complexId: string, fixedBookingId: string, cancelFuture: boolean) =>
+      request<{ message: string }>(`/complexes/${complexId}/fixed-bookings/${fixedBookingId}?cancelFuture=${cancelFuture}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Reservations
@@ -151,9 +190,9 @@ export const api = {
     create: (turnId: string, body: { guestName: string; guestPhone: string; guestEmail?: string; type?: 'PLAYER' | 'CLASS'; notes?: string }) =>
       request<CreateReservationResponse>(`/turns/${turnId}/reservations`, { method: 'POST', body: JSON.stringify(body) }),
     cancel: (id: string) => request<{ message: string }>(`/reservations/${id}`, { method: 'DELETE' }),
-    getComplexReservations: (complexId: string) =>
-      request<{ reservations: OwnerReservationView[]; stats: { totalReservations: number; totalCollected: number; totalPending: number } }>(
-        `/complexes/${complexId}/reservations`
+    getComplexReservations: (complexId: string, range?: { from: string; to: string }) =>
+      request<{ reservations: OwnerReservationView[]; stats: ReservationStats }>(
+        `/complexes/${complexId}/reservations${range ? `?from=${range.from}&to=${range.to}` : ''}`
       ),
     updatePayment: (reservationId: string, body: { status: 'PAID' | 'PENDING'; amount?: number }) =>
       request<{ message: string; payment: Payment }>(`/reservations/${reservationId}/payment`, { method: 'PUT', body: JSON.stringify(body) }),

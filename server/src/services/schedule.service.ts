@@ -1,7 +1,7 @@
 import prisma from '../prisma';
-import { Prisma, TurnState } from '@prisma/client';
-import * as XLSX from 'xlsx';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { bookTurnTx, releaseReservationTx } from './booking';
 
 // Either the top-level PrismaClient or an interactive-transaction client
 // (`tx` from an outer `prisma.$transaction`). Functions that accept this
@@ -17,32 +17,36 @@ function isP2002(error: unknown): error is Prisma.PrismaClientKnownRequestError 
 // hand-duplicated in schedules.routes.ts — the payload shape only has one
 // source of truth this way. schedules.routes.ts imports these schemas and
 // runs them through the shared `validate()` middleware.
-const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+export const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+// Closing time may also be "24:00" (midnight at the end of the day).
+const CLOSE_TIME_REGEX = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
 
-export const gridCellSchema = z.object({
-  courtId: z.string().min(1, 'Cada celda necesita el id de una cancha'),
-  dayOfWeek: z.number().int().min(0, 'El día debe estar entre 0 y 6').max(6, 'El día debe estar entre 0 y 6'),
-  startTime: z.string().regex(TIME_REGEX, 'La hora de inicio debe tener formato HH:MM'),
-  endTime: z.string().regex(TIME_REGEX, 'La hora de fin debe tener formato HH:MM'),
-  price: z.number().nonnegative('El precio no puede ser negativo'),
-  availability: z.enum(['AVAILABLE', 'BLOCKED']),
-});
+export const courtInputSchema = z
+  .object({
+    id: z.string().optional(),
+    name: z.string().min(1, 'El nombre de la cancha es requerido'),
+    order: z.number().int().nonnegative().optional(),
+    openTime: z.string().regex(TIME_REGEX, 'La hora de apertura debe tener formato HH:MM'),
+    closeTime: z.string().regex(CLOSE_TIME_REGEX, 'La hora de cierre debe tener formato HH:MM'),
+    slotMinutes: z
+      .number()
+      .int()
+      .min(30, 'La duración del turno debe ser de al menos 30 minutos')
+      .max(180, 'La duración del turno no puede superar los 180 minutos'),
+    basePrice: z.number().nonnegative('El precio no puede ser negativo'),
+  })
+  .refine((c) => toMinutes(c.closeTime) - toMinutes(c.openTime) >= c.slotMinutes, {
+    message: 'El rango horario de la cancha debe alcanzar para al menos un turno completo',
+    path: ['closeTime'],
+  });
 
-export const courtInputSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1, 'El nombre de la cancha es requerido'),
-  order: z.number().int().nonnegative().optional(),
-});
-
-export const scheduleUpdateSchema = z.object({
-  courts: z.array(courtInputSchema).optional(),
-  cells: z.array(gridCellSchema),
+export const courtsUpdateSchema = z.object({
+  courts: z.array(courtInputSchema).min(1, 'Debes mantener al menos una cancha'),
   resolveConflicts: z.enum(['KEEP', 'CANCEL']).optional(),
 });
 
-export type GridCellInput = z.infer<typeof gridCellSchema>;
 export type CourtInput = z.infer<typeof courtInputSchema>;
-export type ScheduleUpdatePayload = z.infer<typeof scheduleUpdateSchema>;
+export type CourtsUpdatePayload = z.infer<typeof courtsUpdateSchema>;
 
 // Helper: parse date string YYYY-MM-DD to local Date components
 export function parseDateString(dateStr: string): { year: number; month: number; day: number; dayOfWeek: number } {
@@ -64,6 +68,12 @@ export function formatDate(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+// Helper: YYYY-MM-DD shifted by N days
+export function addDays(dateStr: string, days: number): string {
+  const { year, month, day } = parseDateString(dateStr);
+  return formatDate(new Date(year, month - 1, day + days));
+}
+
 // Helper: generate array of date strings between from and to (inclusive)
 export function getDateRange(fromStr: string, toStr: string): string[] {
   const dates: string[] = [];
@@ -80,12 +90,100 @@ export function getDateRange(fromStr: string, toStr: string): string[] {
   return dates;
 }
 
+export function toMinutes(time: string): number {
+  const [h, m] = time.split(':').map(Number);
+  return h * 60 + m;
+}
+
+function fromMinutes(total: number): string {
+  const wrapped = total % (24 * 60);
+  return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
+}
+
+/** The turn slots a court offers every day, from its opening to closing time in `slotMinutes` blocks (the last one must fit entirely). */
+export function buildCourtSlots(court: { openTime: string; closeTime: string; slotMinutes: number }) {
+  const slots: { start: string; end: string }[] = [];
+  const close = toMinutes(court.closeTime);
+  if (court.slotMinutes <= 0) return slots;
+  for (let m = toMinutes(court.openTime); m + court.slotMinutes <= close; m += court.slotMinutes) {
+    slots.push({ start: fromMinutes(m), end: fromMinutes(m + court.slotMinutes) });
+  }
+  return slots;
+}
+
+/**
+ * Materializes the turns of every fixed booking (turno fijo) that applies in
+ * the range as real reservations. Only books turns that are still AVAILABLE
+ * and untouched by the owner (`manualOverride`), so a blocked slot, a
+ * tournament, a player's booking or a cancelled occurrence is never
+ * overwritten.
+ */
+async function applyFixedBookings(tx: Prisma.TransactionClient, complexId: string, fromDateStr: string, toDateStr: string) {
+  const fixedBookings = await tx.fixedBooking.findMany({
+    where: {
+      complexId,
+      active: true,
+      startDate: { lte: toDateStr },
+      OR: [{ endDate: null }, { endDate: { gte: fromDateStr } }],
+    },
+  });
+  if (fixedBookings.length === 0) return;
+
+  const complex = await tx.complex.findUnique({ where: { id: complexId }, select: { ownerId: true } });
+  if (!complex) return;
+
+  const candidates = await tx.turn.findMany({
+    where: {
+      courtId: { in: fixedBookings.map((fb) => fb.courtId) },
+      startTime: { in: fixedBookings.map((fb) => fb.startTime) },
+      date: { gte: fromDateStr, lte: toDateStr },
+      state: 'AVAILABLE',
+      manualOverride: false,
+      reservation: null,
+    },
+  });
+
+  for (const turn of candidates) {
+    const { dayOfWeek } = parseDateString(turn.date);
+    const fb = fixedBookings.find(
+      (f) =>
+        f.courtId === turn.courtId &&
+        f.startTime === turn.startTime &&
+        f.dayOfWeek === dayOfWeek &&
+        f.startDate <= turn.date &&
+        (!f.endDate || f.endDate >= turn.date)
+    );
+    if (!fb) continue;
+
+    await bookTurnTx(
+      tx,
+      turn,
+      {
+        complexId,
+        userId: null,
+        guestName: fb.guestName,
+        guestPhone: fb.guestPhone,
+        type: 'PLAYER',
+        notes: fb.notes,
+        fixedBookingId: fb.id,
+        recordedById: complex.ownerId,
+        paymentNote: `Turno fijo de ${fb.guestName}`,
+      },
+      { requireNoOverride: true }
+    );
+  }
+}
+
 /**
  * Ensures turns are materialized for the given complex in the date range.
- * Idempotent: creates missing turns, updates unreserved turn prices/availability from template, never overwrites occupied turns.
+ * Idempotent: creates missing turns from each court's range, re-syncs
+ * untouched free turns (price/end time), removes free turns that fell out of
+ * the range, and books the fixed bookings that apply. Occupied turns and
+ * turns the owner edited by hand are never overwritten. Past dates are only
+ * read, never generated.
  *
  * Accepts an optional `client` so it can be composed inside an outer
- * transaction (e.g. from `saveComplexSchedule`). When called standalone
+ * transaction (e.g. from `saveComplexCourts`). When called standalone
  * (the default, `client = prisma`), its own writes are wrapped in a
  * transaction here.
  */
@@ -97,114 +195,103 @@ export async function ensureTurnsForRange(
 ) {
   const courts = await client.court.findMany({
     where: { complexId, active: true },
-    include: { templateCells: true },
   });
 
   if (courts.length === 0) {
     return [];
   }
 
-  const dates = getDateRange(fromDateStr, toDateStr);
   const courtIds = courts.map((c) => c.id);
+  const todayStr = formatDate(new Date());
+  const genFrom = fromDateStr > todayStr ? fromDateStr : todayStr;
 
-  // Fetch existing turns in range
-  const existingTurns = await client.turn.findMany({
-    where: {
-      courtId: { in: courtIds },
-      date: { gte: fromDateStr, lte: toDateStr },
-    },
-    include: { reservation: true },
-  });
+  if (genFrom <= toDateStr) {
+    const dates = getDateRange(genFrom, toDateStr);
 
-  const existingMap = new Map<string, typeof existingTurns[0]>();
-  for (const t of existingTurns) {
-    existingMap.set(`${t.courtId}_${t.date}_${t.startTime}`, t);
-  }
+    // Fetch existing turns in the generated part of the range
+    const existingTurns = await client.turn.findMany({
+      where: {
+        courtId: { in: courtIds },
+        date: { gte: genFrom, lte: toDateStr },
+      },
+    });
 
-  const toCreate: {
-    courtId: string;
-    date: string;
-    startTime: string;
-    endTime: string;
-    price: number;
-    state: TurnState;
-  }[] = [];
+    const existingMap = new Map<string, typeof existingTurns[0]>();
+    for (const t of existingTurns) {
+      existingMap.set(`${t.courtId}_${t.date}_${t.startTime}`, t);
+    }
 
-  const toUpdate: { id: string; price: number; state: TurnState; endTime: string }[] = [];
+    const toCreate: { courtId: string; date: string; startTime: string; endTime: string; price: number }[] = [];
+    const toUpdate: { id: string; price: number; endTime: string }[] = [];
+    const validKeys = new Set<string>();
 
-  for (const dateStr of dates) {
-    const { dayOfWeek } = parseDateString(dateStr);
+    for (const dateStr of dates) {
+      for (const court of courts) {
+        for (const slot of buildCourtSlots(court)) {
+          const key = `${court.id}_${dateStr}_${slot.start}`;
+          validKeys.add(key);
+          const existing = existingMap.get(key);
 
-    for (const court of courts) {
-      const templatesForDay = court.templateCells.filter((tc) => tc.dayOfWeek === dayOfWeek);
-
-      for (const tc of templatesForDay) {
-        const key = `${court.id}_${dateStr}_${tc.startTime}`;
-        const existing = existingMap.get(key);
-
-        if (!existing) {
-          toCreate.push({
-            courtId: court.id,
-            date: dateStr,
-            startTime: tc.startTime,
-            endTime: tc.endTime,
-            price: tc.price,
-            state: tc.availability, // "AVAILABLE" or "BLOCKED"
-          });
-        } else if (existing.state !== 'OCCUPIED') {
-          // If template changed price or availability and turn is not occupied, sync it
-          if (existing.price !== tc.price || existing.state !== tc.availability || existing.endTime !== tc.endTime) {
-            toUpdate.push({
-              id: existing.id,
-              price: tc.price,
-              state: tc.availability,
-              endTime: tc.endTime,
+          if (!existing) {
+            toCreate.push({
+              courtId: court.id,
+              date: dateStr,
+              startTime: slot.start,
+              endTime: slot.end,
+              price: court.basePrice,
             });
+          } else if (
+            existing.state !== 'OCCUPIED' &&
+            !existing.manualOverride &&
+            (existing.price !== court.basePrice || existing.endTime !== slot.end)
+          ) {
+            toUpdate.push({ id: existing.id, price: court.basePrice, endTime: slot.end });
           }
         }
       }
     }
-  }
 
-  // Execute in batches. SQLite's Prisma connector doesn't support
-  // `skipDuplicates` on createMany, so instead we catch the unique-constraint
-  // violation (P2002) that happens when a concurrent request already
-  // created some of these same turns between our read above and this write
-  // — that's expected under concurrency, not an error, and the final
-  // findMany below is what actually gets returned to the caller either way.
-  const writeTurns = async (tx: DbClient) => {
-    if (toCreate.length > 0) {
+    // Free turns whose start no longer exists in the court's range.
+    const toDelete = existingTurns
+      .filter((t) => t.state !== 'OCCUPIED' && !validKeys.has(`${t.courtId}_${t.date}_${t.startTime}`))
+      .map((t) => t.id);
+
+    // A concurrent request may have already created some of these same
+    // turns between our read above and this write — that's expected under
+    // concurrency, not an error, so the unique-constraint violation (P2002)
+    // is swallowed and the final findMany below is what actually gets
+    // returned to the caller either way.
+    const writeTurns = async (tx: Prisma.TransactionClient) => {
+      if (toCreate.length > 0) {
+        await tx.turn.createMany({ data: toCreate, skipDuplicates: true });
+      }
+
+      for (const u of toUpdate) {
+        // Guarded so a turn reserved/edited concurrently is left alone.
+        await tx.turn.updateMany({
+          where: { id: u.id, state: { not: 'OCCUPIED' }, manualOverride: false },
+          data: { price: u.price, endTime: u.endTime },
+        });
+      }
+
+      if (toDelete.length > 0) {
+        await tx.turn.deleteMany({ where: { id: { in: toDelete }, state: { not: 'OCCUPIED' } } });
+      }
+
+      await applyFixedBookings(tx, complexId, genFrom, toDateStr);
+    };
+
+    if (client === prisma) {
+      // Standalone call: give our own writes transactional atomicity.
       try {
-        await tx.turn.createMany({ data: toCreate });
+        await prisma.$transaction((tx) => writeTurns(tx), { maxWait: 5000, timeout: 20000 });
       } catch (error) {
         if (!isP2002(error)) throw error;
       }
+    } else {
+      // Already running inside an outer transaction (e.g. saveComplexCourts).
+      await writeTurns(client as Prisma.TransactionClient);
     }
-
-    for (const u of toUpdate) {
-      try {
-        await tx.turn.update({
-          where: { id: u.id },
-          data: {
-            price: u.price,
-            state: u.state,
-            endTime: u.endTime,
-          },
-        });
-      } catch (error) {
-        // The turn may have just been reserved (state flipped to OCCUPIED)
-        // or deleted concurrently; skip it, it's no longer ours to sync.
-        if (!(error instanceof Prisma.PrismaClientKnownRequestError)) throw error;
-      }
-    }
-  };
-
-  if (client === prisma) {
-    // Standalone call: give our own writes transactional atomicity.
-    await prisma.$transaction((tx) => writeTurns(tx));
-  } else {
-    // Already running inside an outer transaction (e.g. saveComplexSchedule).
-    await writeTurns(client);
   }
 
   // Return all turns in range with reservations and court info
@@ -226,350 +313,123 @@ export async function ensureTurnsForRange(
   });
 }
 
+type ScheduleConflict = {
+  reservationId: string;
+  turnId: string;
+  courtName: string;
+  date: string;
+  time: string;
+  guestName: string;
+  type: string;
+};
+
 /**
- * Validates and saves the weekly schedule grid for a complex.
+ * Saves the courts of a complex (add / rename / delete, and each court's
+ * range: opening, closing, slot length and base price).
  *
- * Runs as a single transaction: court upserts/deletes, template-cell
- * replacement and turn re-sync either all land together or none do, so a
- * failure partway through can't leave the grid in a half-saved state.
+ * Every conflict (future reservations on a deleted court, or outside a
+ * court's new range) is detected BEFORE any write, so a 409 leaves the data
+ * untouched. Runs as a single transaction: court changes and the turn
+ * re-sync either all land together or none do.
  */
-export async function saveComplexSchedule(
-  complexId: string,
-  payload: ScheduleUpdatePayload
-) {
-  const { courts: courtInputs, cells, resolveConflicts } = payload;
+export async function saveComplexCourts(complexId: string, payload: CourtsUpdatePayload) {
+  const { courts: courtInputs, resolveConflicts } = payload;
   const todayStr = formatDate(new Date());
 
   return prisma.$transaction(
     async (tx) => {
-      // 1. Handle court updates / additions / removals if provided
-      if (courtInputs && courtInputs.length > 0) {
-        const existingCourts = await tx.court.findMany({
-          where: { complexId },
-        });
+      const existingCourts = await tx.court.findMany({ where: { complexId } });
+      const existingIds = new Set(existingCourts.map((c) => c.id));
+      const inputIds = courtInputs.map((c) => c.id).filter((id): id is string => Boolean(id) && existingIds.has(id!));
+      const courtsToDelete = existingCourts.filter((c) => !inputIds.includes(c.id));
 
-        const inputIds = courtInputs.map((c) => c.id).filter(Boolean) as string[];
-        const courtsToDelete = existingCourts.filter((c) => !inputIds.includes(c.id));
-
-        // Check if courts to delete have future reservations
-        if (courtsToDelete.length > 0) {
-          const futureReservationsOnDeletedCourts = await tx.reservation.findMany({
-            where: {
-              turn: {
-                courtId: { in: courtsToDelete.map((c) => c.id) },
-                date: { gte: todayStr },
-              },
-            },
-            include: { turn: { include: { court: true } } },
-          });
-
-          if (futureReservationsOnDeletedCourts.length > 0 && !resolveConflicts) {
-            return {
-              hasConflicts: true,
-              conflictType: 'COURT_DELETION',
-              conflicts: futureReservationsOnDeletedCourts.map((r) => ({
-                reservationId: r.id,
-                courtName: r.turn.court.name,
-                date: r.turn.date,
-                time: `${r.turn.startTime} - ${r.turn.endTime}`,
-                guestName: r.guestName,
-                type: r.type,
-              })),
-            };
-          }
-
-          if (resolveConflicts === 'CANCEL') {
-            for (const r of futureReservationsOnDeletedCourts) {
-              await tx.reservation.delete({ where: { id: r.id } });
-            }
-          }
-
-          // Delete/deactivate removed courts
-          await tx.court.deleteMany({
-            where: { id: { in: courtsToDelete.map((c) => c.id) } },
-          });
-        }
-
-        // Upsert courts
-        for (let i = 0; i < courtInputs.length; i++) {
-          const c = courtInputs[i];
-          if (c.id && !c.id.startsWith('temp-')) {
-            await tx.court.update({
-              where: { id: c.id },
-              data: { name: c.name, order: c.order ?? i, active: true },
-            });
-          } else {
-            await tx.court.create({
-              data: {
-                complexId,
-                name: c.name,
-                order: c.order ?? i,
-                active: true,
-              },
-            });
-          }
-        }
-      }
-
-      // 2. Fetch fresh active courts
-      const activeCourts = await tx.court.findMany({
-        where: { complexId, active: true },
-      });
-      const activeCourtIds = activeCourts.map((c) => c.id);
-
-      // 3. Conflict detection on modified/blocked cells
-      const blockedCells = cells.filter((cell) => cell.availability === 'BLOCKED');
-      if (blockedCells.length > 0) {
-        const futureOccupiedTurns = await tx.turn.findMany({
-          where: {
-            courtId: { in: activeCourtIds },
-            date: { gte: todayStr },
-            state: 'OCCUPIED',
-          },
-          include: {
-            court: true,
-            reservation: true,
-          },
-        });
-
-        const conflictingReservations: Array<{
-          reservationId: string;
-          turnId: string;
-          courtName: string;
-          date: string;
-          time: string;
-          guestName: string;
-          type: string;
-        }> = [];
-
-        for (const turn of futureOccupiedTurns) {
-          const { dayOfWeek } = parseDateString(turn.date);
-          const isBlocked = blockedCells.some(
-            (bc) => bc.courtId === turn.courtId && bc.dayOfWeek === dayOfWeek && bc.startTime === turn.startTime
-          );
-          if (isBlocked && turn.reservation) {
-            conflictingReservations.push({
-              reservationId: turn.reservation.id,
-              turnId: turn.id,
-              courtName: turn.court.name,
-              date: turn.date,
-              time: `${turn.startTime} - ${turn.endTime}`,
-              guestName: turn.reservation.guestName,
-              type: turn.reservation.type,
-            });
-          }
-        }
-
-        if (conflictingReservations.length > 0 && !resolveConflicts) {
-          return {
-            hasConflicts: true,
-            conflictType: 'CELL_BLOCKED',
-            conflicts: conflictingReservations,
-          };
-        }
-
-        if (conflictingReservations.length > 0 && resolveConflicts === 'CANCEL') {
-          for (const cr of conflictingReservations) {
-            await tx.reservation.delete({ where: { id: cr.reservationId } });
-            // Deleting the reservation alone leaves Turn.state stuck on
-            // 'OCCUPIED' (nothing else clears it); ensureTurnsForRange below
-            // skips OCCUPIED turns on purpose, so without this reset the
-            // turn would stay a reservation-less ghost instead of picking
-            // up the new BLOCKED template.
-            await tx.turn.update({ where: { id: cr.turnId }, data: { state: 'AVAILABLE' } });
-          }
-        }
-      }
-
-      // 4. Replace template cells for active courts
-      await tx.templateCell.deleteMany({
-        where: { courtId: { in: activeCourtIds } },
+      const futureReservations = await tx.reservation.findMany({
+        where: {
+          complexId,
+          turn: { date: { gte: todayStr }, courtId: { in: existingCourts.map((c) => c.id) } },
+        },
+        include: { turn: { include: { court: true } } },
       });
 
-      const validCellsToInsert = cells
-        .filter((c) => activeCourtIds.includes(c.courtId))
-        .map((c) => ({
-          courtId: c.courtId,
-          dayOfWeek: c.dayOfWeek,
-          startTime: c.startTime,
-          endTime: c.endTime,
-          price: c.price,
-          availability: c.availability,
-        }));
+      const toConflict = (r: (typeof futureReservations)[0]): ScheduleConflict => ({
+        reservationId: r.id,
+        turnId: r.turnId,
+        courtName: r.turn.court.name,
+        date: r.turn.date,
+        time: `${r.turn.startTime} - ${r.turn.endTime}`,
+        guestName: r.guestName,
+        type: r.type,
+      });
 
-      if (validCellsToInsert.length > 0) {
-        await tx.templateCell.createMany({
-          data: validCellsToInsert,
+      // 1. Reservations on courts being deleted
+      const deletedIds = new Set(courtsToDelete.map((c) => c.id));
+      const deletionConflicts = futureReservations.filter((r) => deletedIds.has(r.turn.courtId)).map(toConflict);
+
+      // 2. Reservations whose start falls outside the court's new range
+      const rangeConflicts: ScheduleConflict[] = [];
+      for (const input of courtInputs) {
+        if (!input.id || !existingIds.has(input.id)) continue;
+        const newStarts = new Set(buildCourtSlots(input).map((s) => s.start));
+        for (const r of futureReservations) {
+          if (r.turn.courtId === input.id && !newStarts.has(r.turn.startTime)) {
+            rangeConflicts.push(toConflict(r));
+          }
+        }
+      }
+
+      const conflicts = [...deletionConflicts, ...rangeConflicts];
+      if (conflicts.length > 0 && !resolveConflicts) {
+        return {
+          hasConflicts: true,
+          conflictType: deletionConflicts.length > 0 ? 'COURT_DELETION' : 'RANGE_CHANGE',
+          conflicts,
+        };
+      }
+
+      // Deleted courts cascade-delete their turns and reservations either
+      // way; drop their payments too so they don't linger as orphans.
+      if (deletionConflicts.length > 0) {
+        await tx.payment.deleteMany({
+          where: { payableType: 'RESERVATION', payableId: { in: deletionConflicts.map((c) => c.reservationId) } },
         });
       }
 
-      // 5. Synchronize future turns (next 60 days), inside this same transaction
-      const futureEnd = new Date();
-      futureEnd.setDate(futureEnd.getDate() + 60);
-      const futureEndStr = formatDate(futureEnd);
-      await ensureTurnsForRange(complexId, todayStr, futureEndStr, tx);
+      // KEEP leaves out-of-range reservations in place (occupied turns are
+      // never deleted by the re-sync); CANCEL frees them, and the re-sync
+      // below then removes the now-free out-of-range turns.
+      if (resolveConflicts === 'CANCEL') {
+        for (const c of rangeConflicts) {
+          await releaseReservationTx(tx, { id: c.reservationId, turnId: c.turnId });
+        }
+      }
+
+      if (courtsToDelete.length > 0) {
+        await tx.court.deleteMany({ where: { id: { in: courtsToDelete.map((c) => c.id) } } });
+      }
+
+      for (let i = 0; i < courtInputs.length; i++) {
+        const c = courtInputs[i];
+        const data = {
+          name: c.name,
+          order: c.order ?? i,
+          active: true,
+          openTime: c.openTime,
+          closeTime: c.closeTime,
+          slotMinutes: c.slotMinutes,
+          basePrice: c.basePrice,
+        };
+        if (c.id && existingIds.has(c.id)) {
+          await tx.court.update({ where: { id: c.id }, data });
+        } else {
+          await tx.court.create({ data: { ...data, complexId } });
+        }
+      }
+
+      // Re-sync future turns (next 60 days), inside this same transaction
+      await ensureTurnsForRange(complexId, todayStr, addDays(todayStr, 60), tx);
 
       return { success: true };
     },
     { maxWait: 5000, timeout: 20000 }
   );
-}
-
-/**
- * Exports weekly template grid to XLSX workbook buffer.
- */
-export async function exportScheduleToExcel(complexId: string): Promise<Buffer> {
-  const courts = await prisma.court.findMany({
-    where: { complexId, active: true },
-    include: { templateCells: true },
-    orderBy: { order: 'asc' },
-  });
-
-  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-  const rows: Array<Record<string, any>> = [];
-
-  for (const court of courts) {
-    for (const cell of court.templateCells) {
-      rows.push({
-        Cancha: court.name,
-        Día: days[cell.dayOfWeek],
-        'Día Nro (0-6)': cell.dayOfWeek,
-        'Hora Inicio': cell.startTime,
-        'Hora Fin': cell.endTime,
-        Precio: cell.price,
-        Estado: cell.availability === 'AVAILABLE' ? 'DISPONIBLE' : 'BLOQUEADO',
-      });
-    }
-  }
-
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Grilla Semanal');
-  return XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
-}
-
-/**
- * Imports weekly schedule from XLSX buffer.
- */
-export async function importScheduleFromExcel(complexId: string, fileBuffer: Buffer) {
-  const workbook = XLSX.read(fileBuffer, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) {
-    throw new Error('El archivo Excel no contiene hojas válidas.');
-  }
-
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<any>(sheet);
-
-  if (!rows || rows.length === 0) {
-    throw new Error('El archivo Excel está vacío.');
-  }
-
-  // Validate columns
-  const firstRow = rows[0];
-  if (!('Cancha' in firstRow && 'Hora Inicio' in firstRow && 'Precio' in firstRow)) {
-    throw new Error('Formato inválido. Las columnas deben incluir Cancha, Hora Inicio, Hora Fin, Precio y Estado.');
-  }
-
-  // Ensure courts exist or create them
-  const courtNames = Array.from(new Set(rows.map((r) => String(r.Cancha).trim())));
-  const existingCourts = await prisma.court.findMany({
-    where: { complexId },
-  });
-
-  const courtMap = new Map<string, string>();
-  for (const name of courtNames) {
-    let court = existingCourts.find((ec) => ec.name.toLowerCase() === name.toLowerCase());
-    if (!court) {
-      court = await prisma.court.create({
-        data: {
-          complexId,
-          name,
-          order: existingCourts.length,
-        },
-      });
-    }
-    courtMap.set(name.toLowerCase(), court.id);
-  }
-
-  const dayMap: Record<string, number> = {
-    domingo: 0,
-    lunes: 1,
-    martes: 2,
-    miercoles: 3,
-    miércoles: 3,
-    jueves: 4,
-    viernes: 5,
-    sabado: 6,
-    sábado: 6,
-  };
-
-  const parsedCells: GridCellInput[] = [];
-  const errors: string[] = [];
-
-  rows.forEach((r, idx) => {
-    const rowNum = idx + 2; // +1 for the header row, +1 to make it 1-based
-
-    const cName = String(r.Cancha || '').trim();
-    if (!cName) {
-      errors.push(`Fila ${rowNum}: falta el nombre de la cancha.`);
-      return;
-    }
-    const courtId = courtMap.get(cName.toLowerCase());
-    if (!courtId) {
-      errors.push(`Fila ${rowNum}: no se pudo resolver la cancha "${cName}".`);
-      return;
-    }
-
-    let dayOfWeek = Number(r['Día Nro (0-6)']);
-    if (isNaN(dayOfWeek)) {
-      const dName = String(r.Día || '').trim().toLowerCase();
-      if (!(dName in dayMap)) {
-        errors.push(`Fila ${rowNum}: día inválido ("${r.Día ?? ''}").`);
-        return;
-      }
-      dayOfWeek = dayMap[dName];
-    }
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-      errors.push(`Fila ${rowNum}: el día debe estar entre 0 y 6.`);
-      return;
-    }
-
-    const startTime = String(r['Hora Inicio'] || '').trim();
-    if (!startTime) {
-      errors.push(`Fila ${rowNum}: falta la hora de inicio.`);
-      return;
-    }
-    const endTime = String(r['Hora Fin'] || '').trim() || startTime;
-
-    const rawPrice = r.Precio;
-    const price = Number(rawPrice);
-    if (rawPrice === undefined || rawPrice === null || rawPrice === '' || Number.isNaN(price) || price < 0) {
-      errors.push(`Fila ${rowNum}: precio inválido ("${rawPrice ?? ''}").`);
-      return;
-    }
-
-    const estadoStr = String(r.Estado || '').trim().toUpperCase();
-    const availability = estadoStr.includes('BLOQ') ? 'BLOCKED' : 'AVAILABLE';
-
-    parsedCells.push({
-      courtId,
-      dayOfWeek,
-      startTime,
-      endTime,
-      price,
-      availability,
-    });
-  });
-
-  if (errors.length > 0) {
-    const preview = errors.slice(0, 10).join('\n');
-    const rest = errors.length > 10 ? `\n...y ${errors.length - 10} error(es) más.` : '';
-    throw new Error(`El archivo tiene datos inválidos y no fue importado:\n${preview}${rest}`);
-  }
-
-  return saveComplexSchedule(complexId, {
-    cells: parsedCells,
-    resolveConflicts: 'KEEP',
-  });
 }

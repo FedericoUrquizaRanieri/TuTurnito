@@ -4,44 +4,48 @@ import { requireAuth, requireRole, requireComplexOwner } from '../middleware/aut
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
+import { saveComplexCourts, courtsUpdateSchema, ensureTurnsForRange } from '../services/schedule.service';
+import { updateTurnByOwner, turnOwnerUpdateSchema } from '../services/turn.service';
 import {
-  saveComplexSchedule,
-  exportScheduleToExcel,
-  importScheduleFromExcel,
-  scheduleUpdateSchema,
-} from '../services/schedule.service';
+  listFixedBookings,
+  createFixedBooking,
+  deleteFixedBooking,
+  fixedBookingCreateSchema,
+} from '../services/fixedBooking.service';
+import { buildPaymentMap, getPaymentsByPayableIds } from '../services/payment.service';
 
 const router = Router({ mergeParams: true });
 
-// GET /api/complexes/:id/schedule (Owner weekly grid)
+const ownerOnly = [requireAuth, requireRole('DUEÑO'), requireComplexOwner];
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_OWNER_RANGE_DAYS = 45;
+
+// GET /api/complexes/:id/schedule (Owner: courts with their range + active fixed bookings)
 router.get(
   '/:id/schedule',
-  requireAuth,
-  requireRole('DUEÑO'),
-  requireComplexOwner,
+  ...ownerOnly,
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
 
     const courts = await prisma.court.findMany({
       where: { complexId: id, active: true },
-      include: { templateCells: { orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }] } },
       orderBy: { order: 'asc' },
     });
+    const fixedBookings = await listFixedBookings(id);
 
-    return res.json({ courts });
-  }, 'Error al obtener la grilla semanal.')
+    return res.json({ courts, fixedBookings });
+  }, 'Error al obtener las canchas del complejo.')
 );
 
-// PUT /api/complexes/:id/schedule (Save weekly grid with conflict check)
+// PUT /api/complexes/:id/courts (Save courts and their ranges, with conflict check)
 router.put(
-  '/:id/schedule',
-  requireAuth,
-  requireRole('DUEÑO'),
-  requireComplexOwner,
-  validate(scheduleUpdateSchema),
+  '/:id/courts',
+  ...ownerOnly,
+  validate(courtsUpdateSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const result = await saveComplexSchedule(id, req.body);
+    const result = await saveComplexCourts(id, req.body);
 
     if ('hasConflicts' in result && result.hasConflicts) {
       return res.status(409).json({
@@ -52,51 +56,97 @@ router.put(
       });
     }
 
-    return res.json({ message: 'Grilla semanal guardada y turnos actualizados exitosamente.', success: true });
-  }, 'Error al guardar la grilla semanal.')
+    return res.json({ message: 'Canchas guardadas y turnos actualizados exitosamente.', success: true });
+  }, 'Error al guardar las canchas.')
 );
 
-// GET /api/complexes/:id/schedule/export (Export grid as .xlsx)
+// GET /api/complexes/:id/owner-turns?from&to (Owner reservations grid, past days included)
 router.get(
-  '/:id/schedule/export',
-  requireAuth,
-  requireRole('DUEÑO'),
-  requireComplexOwner,
+  '/:id/owner-turns',
+  ...ownerOnly,
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const buffer = await exportScheduleToExcel(id);
+    const { from, to } = req.query;
 
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="canchas-grilla-${id}.xlsx"`);
-    return res.send(buffer);
-  }, 'Error al exportar la grilla a Excel.')
+    if (typeof from !== 'string' || !DATE_REGEX.test(from) || typeof to !== 'string' || !DATE_REGEX.test(to)) {
+      throw new HttpError(400, 'Los parámetros "from" y "to" deben tener formato YYYY-MM-DD.');
+    }
+    if (to < from) {
+      throw new HttpError(400, 'El parámetro "to" no puede ser anterior a "from".');
+    }
+    const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24);
+    if (rangeDays > MAX_OWNER_RANGE_DAYS) {
+      throw new HttpError(400, `El rango de fechas no puede superar los ${MAX_OWNER_RANGE_DAYS} días.`);
+    }
+
+    const turns = await ensureTurnsForRange(id, from, to);
+    const reservationIds = turns.flatMap((t) => (t.reservation ? [t.reservation.id] : []));
+    const paymentMap = buildPaymentMap(await getPaymentsByPayableIds('RESERVATION', reservationIds));
+
+    const courts = await prisma.court.findMany({
+      where: { complexId: id, active: true },
+      orderBy: { order: 'asc' },
+    });
+
+    return res.json({
+      courts,
+      turns: turns.map((t) => {
+        if (!t.reservation) return t;
+        const p = paymentMap.get(t.reservation.id);
+        return {
+          ...t,
+          reservation: {
+            ...t.reservation,
+            paymentStatus: p?.status || 'PENDING',
+            paymentAmount: p ? p.amount : t.price,
+            paymentId: p?.id,
+          },
+        };
+      }),
+    });
+  }, 'Error al obtener la grilla de reservas.')
 );
 
-// POST /api/complexes/:id/schedule/import (Import grid from base64 or raw body)
-router.post(
-  '/:id/schedule/import',
-  requireAuth,
-  requireRole('DUEÑO'),
-  requireComplexOwner,
+// PATCH /api/complexes/:id/turns/:turnId (Owner: block / tournament / free / price)
+router.patch(
+  '/:id/turns/:turnId',
+  ...ownerOnly,
+  validate(turnOwnerUpdateSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const id = req.params.id as string;
-    const { fileBase64 } = req.body;
+    const turn = await updateTurnByOwner(req.params.id as string, req.params.turnId as string, req.body);
+    return res.json({ message: 'Turno actualizado.', turn });
+  }, 'Error al actualizar el turno.')
+);
 
-    try {
-      if (!fileBase64) {
-        throw new HttpError(400, 'No se envió el archivo en formato base64.');
-      }
-      const buffer = Buffer.from(fileBase64, 'base64');
-      await importScheduleFromExcel(id, buffer);
-      return res.json({ message: 'Grilla importada exitosamente desde Excel.' });
-    } catch (error: any) {
-      // Import failures are always shown as 400s with the specific reason
-      // (missing columns, bad rows, etc.), never a generic 500 — this route
-      // never had a fallback message, it always surfaced the real error.
-      if (error instanceof HttpError) throw error;
-      throw new HttpError(400, error.message || 'Error al importar archivo Excel.');
-    }
-  })
+// GET /api/complexes/:id/fixed-bookings
+router.get(
+  '/:id/fixed-bookings',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const fixedBookings = await listFixedBookings(req.params.id as string);
+    return res.json({ fixedBookings });
+  }, 'Error al obtener los turnos fijos.')
+);
+
+// POST /api/complexes/:id/fixed-bookings
+router.post(
+  '/:id/fixed-bookings',
+  ...ownerOnly,
+  validate(fixedBookingCreateSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await createFixedBooking(req.params.id as string, req.body);
+    return res.status(201).json({ message: 'Turno fijo creado.', ...result });
+  }, 'Error al crear el turno fijo.')
+);
+
+// DELETE /api/complexes/:id/fixed-bookings/:fixedId?cancelFuture=true
+router.delete(
+  '/:id/fixed-bookings/:fixedId',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    await deleteFixedBooking(req.params.id as string, req.params.fixedId as string, req.query.cancelFuture === 'true');
+    return res.json({ message: 'Turno fijo eliminado.' });
+  }, 'Error al eliminar el turno fijo.')
 );
 
 export default router;

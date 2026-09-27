@@ -49,14 +49,14 @@ router.get(
         owner: { select: { id: true, name: true, phone: true } },
         courts: {
           where: { active: true },
-          include: { templateCells: { select: { price: true } } },
+          select: { basePrice: true },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const formatted = complexes.map((c) => {
-      const allPrices = c.courts.flatMap((court) => court.templateCells.map((tc) => tc.price));
+      const allPrices = c.courts.map((court) => court.basePrice);
       const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
       const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : null;
 

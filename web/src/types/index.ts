@@ -4,8 +4,7 @@
 // redefining its own ad hoc `any`-typed version.
 
 export type UserRole = 'JUGADOR' | 'DUEÑO' | 'PROFESOR';
-export type TurnState = 'AVAILABLE' | 'OCCUPIED' | 'BLOCKED';
-export type CellAvailability = 'AVAILABLE' | 'BLOCKED';
+export type TurnState = 'AVAILABLE' | 'OCCUPIED' | 'BLOCKED' | 'TOURNAMENT';
 export type ReservationType = 'PLAYER' | 'CLASS';
 export type PaymentStatus = 'PAID' | 'PENDING';
 export type PayableType = 'RESERVATION' | 'STUDENT_CLASS';
@@ -17,20 +16,27 @@ export interface Court {
   name: string;
   order: number;
   active?: boolean;
+  /** Rango horario: turns run from openTime to closeTime in slotMinutes blocks, every day. */
+  openTime: string;
+  closeTime: string;
+  slotMinutes: number;
+  basePrice: number;
 }
 
-export interface TemplateCell {
-  id?: string;
-  courtId?: string;
+/** GET /api/complexes/:id/schedule — a weekly fixed booking (turno fijo). */
+export interface FixedBooking {
+  id: string;
+  complexId: string;
+  courtId: string;
+  court?: { id: string; name: string };
   dayOfWeek: number;
   startTime: string;
-  endTime: string;
-  price: number;
-  availability: CellAvailability;
-}
-
-export interface CourtWithTemplate extends Court {
-  templateCells: TemplateCell[];
+  guestName: string;
+  guestPhone: string;
+  notes: string | null;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
 }
 
 /** The public catalog card shape from GET /api/complexes. */
@@ -72,6 +78,8 @@ export interface TurnReservationSummary {
   guestName: string;
   guestPhone?: string;
   type: ReservationType;
+  notes?: string | null;
+  fixedBookingId?: string | null;
   user?: { id: string; name: string; email: string; phone: string | null } | null;
   professor?: { id: string; name: string; email: string } | null;
 }
@@ -84,8 +92,17 @@ export interface Turn {
   endTime: string;
   price: number;
   state: TurnState;
+  label?: string | null;
+  manualOverride?: boolean;
   court: { id: string; name: string };
   reservation?: TurnReservationSummary | null;
+}
+
+/** GET /api/complexes/:id/owner-turns — a turn in the owner's grid, reservation joined with its payment. */
+export interface OwnerTurn extends Turn {
+  reservation?:
+    | (TurnReservationSummary & { paymentStatus: PaymentStatus; paymentAmount: number; paymentId?: string })
+    | null;
 }
 
 /** The raw row shape returned directly by POST /api/turns/:turnId/reservations (not the formatted owner/player views below). */
@@ -143,6 +160,7 @@ export interface OwnerReservationView {
   guestPhone: string;
   guestEmail: string | null;
   type: ReservationType;
+  fixedBookingId: string | null;
   user: { id: string; name: string; email: string; phone: string | null } | null;
   professor: { id: string; name: string; phone: string | null } | null;
   price: number;

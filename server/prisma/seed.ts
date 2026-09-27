@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { ensureTurnsForRange, formatDate } from '../src/services/schedule.service';
+import { addDays, buildCourtSlots, ensureTurnsForRange, formatDate, parseDateString } from '../src/services/schedule.service';
 
 const prisma = new PrismaClient();
 
@@ -28,7 +28,7 @@ async function main() {
   await prisma.payment.deleteMany({});
   await prisma.reservation.deleteMany({});
   await prisma.turn.deleteMany({});
-  await prisma.templateCell.deleteMany({});
+  await prisma.fixedBooking.deleteMany({});
   await prisma.court.deleteMany({});
   await prisma.professorRequest.deleteMany({});
   await prisma.professorComplex.deleteMany({});
@@ -85,9 +85,9 @@ async function main() {
       ownerId: owner.id,
       courts: {
         create: [
-          { name: 'Cancha 1 Panorámica Pro', order: 0 },
-          { name: 'Cancha 2 Cristal Central', order: 1 },
-          { name: 'Cancha 3 Cubierta Premium', order: 2 },
+          { name: 'Cancha 1 Panorámica Pro', order: 0, openTime: '08:00', closeTime: '23:00', slotMinutes: 90, basePrice: 14000 },
+          { name: 'Cancha 2 Cristal Central', order: 1, openTime: '08:00', closeTime: '23:00', slotMinutes: 90, basePrice: 14000 },
+          { name: 'Cancha 3 Cubierta Premium', order: 2, openTime: '09:00', closeTime: '24:00', slotMinutes: 60, basePrice: 12000 },
         ],
       },
     },
@@ -106,65 +106,12 @@ async function main() {
       ownerId: owner.id,
       courts: {
         create: [
-          { name: 'Cancha Central A', order: 0 },
-          { name: 'Cancha B Panorámica', order: 1 },
+          { name: 'Cancha Central A', order: 0, openTime: '07:00', closeTime: '23:30', slotMinutes: 90, basePrice: 16000 },
+          { name: 'Cancha B Panorámica', order: 1, openTime: '07:00', closeTime: '23:30', slotMinutes: 90, basePrice: 16000 },
         ],
       },
     },
     include: { courts: true },
-  });
-
-  // 3. Create Weekly Schedule (TemplateCells) for complex1
-  console.log('📅 Configurando plantilla semanal del Excel de canchas...');
-  const timeSlots = [
-    { start: '08:00', end: '09:30', price: 12000 },
-    { start: '09:30', end: '11:00', price: 12000 },
-    { start: '11:00', end: '12:30', price: 10000 },
-    { start: '14:00', end: '15:30', price: 10000 },
-    { start: '15:30', end: '17:00', price: 12000 },
-    { start: '17:00', end: '18:30', price: 16000 },
-    { start: '18:30', end: '20:00', price: 18000 },
-    { start: '20:00', end: '21:30', price: 18000 },
-    { start: '21:30', end: '23:00', price: 16000 },
-  ];
-
-  const templateCellsData: any[] = [];
-
-  for (const court of complex1.courts) {
-    for (let day = 0; day <= 6; day++) {
-      for (const slot of timeSlots) {
-        // Bloquear domingo a las 8am en cancha 3 por mantenimiento
-        const isBlocked = court.order === 2 && day === 0 && slot.start === '08:00';
-        templateCellsData.push({
-          courtId: court.id,
-          dayOfWeek: day,
-          startTime: slot.start,
-          endTime: slot.end,
-          price: slot.price,
-          availability: isBlocked ? 'BLOCKED' : 'AVAILABLE',
-        });
-      }
-    }
-  }
-
-  // Also templates for complex2
-  for (const court of complex2.courts) {
-    for (let day = 0; day <= 6; day++) {
-      for (const slot of timeSlots) {
-        templateCellsData.push({
-          courtId: court.id,
-          dayOfWeek: day,
-          startTime: slot.start,
-          endTime: slot.end,
-          price: slot.price + 2000,
-          availability: 'AVAILABLE',
-        });
-      }
-    }
-  }
-
-  await prisma.templateCell.createMany({
-    data: templateCellsData,
   });
 
   // 4. Materialize turns for the next 14 days
@@ -174,6 +121,21 @@ async function main() {
   const futureDate = new Date();
   futureDate.setDate(today.getDate() + 14);
   const futureStr = formatDate(futureDate);
+
+  // Fixed booking first, so materializing the turns already books it.
+  const fixedDay = 2; // Martes
+  await prisma.fixedBooking.create({
+    data: {
+      complexId: complex1.id,
+      courtId: complex1.courts[0].id,
+      dayOfWeek: fixedDay,
+      startTime: '20:00',
+      guestName: 'Grupo de los Martes',
+      guestPhone: '+54 9 291 455-6677',
+      notes: 'Turno fijo semanal',
+      startDate: todayStr,
+    },
+  });
 
   await ensureTurnsForRange(complex1.id, todayStr, futureStr);
   await ensureTurnsForRange(complex2.id, todayStr, futureStr);
@@ -343,6 +305,74 @@ async function main() {
         notes: 'Pendiente de cobro al profesor',
       },
     });
+  }
+
+  // 7. Owner edits on concrete dates: a tournament and a maintenance block
+  console.log('🏆 Marcando torneo y bloqueo de mantenimiento...');
+  const tournamentDate = addDays(todayStr, 3);
+  await prisma.turn.updateMany({
+    where: {
+      courtId: complex1.courts[1].id,
+      date: tournamentDate,
+      startTime: { in: ['18:30', '20:00'] },
+      state: 'AVAILABLE',
+    },
+    data: { state: 'TOURNAMENT', label: 'Torneo Relámpago', manualOverride: true },
+  });
+  await prisma.turn.updateMany({
+    where: { courtId: complex1.courts[2].id, date: addDays(todayStr, 4), startTime: '09:00', state: 'AVAILABLE' },
+    data: { state: 'BLOCKED', manualOverride: true },
+  });
+
+  // 8. Last week's history (past days are never auto-generated), so the
+  // owner grid has something to review and the weekly totals aren't empty.
+  console.log('🕘 Cargando historial de la última semana...');
+  const pastGuests = ['Juan Pérez', 'Lucía Fernández', 'Diego Ramírez', 'Sofía Martínez', 'Tomás Gutiérrez'];
+  for (let back = 7; back >= 1; back--) {
+    const dateStr = addDays(todayStr, -back);
+    for (const court of complex1.courts) {
+      const slots = buildCourtSlots(court);
+      await prisma.turn.createMany({
+        data: slots.map((slot) => ({
+          courtId: court.id,
+          date: dateStr,
+          startTime: slot.start,
+          endTime: slot.end,
+          price: court.basePrice,
+        })),
+        skipDuplicates: true,
+      });
+
+      // Book the evening slots on alternating days/courts
+      const eveningSlots = slots.filter((slot) => slot.start >= '18:00').slice(0, 2);
+      for (const [i, slot] of eveningSlots.entries()) {
+        if ((back + court.order + i) % 2 !== 0) continue;
+        const turn = await prisma.turn.update({
+          where: { courtId_date_startTime: { courtId: court.id, date: dateStr, startTime: slot.start } },
+          data: { state: 'OCCUPIED' },
+        });
+        const guestName = pastGuests[(back + court.order + i) % pastGuests.length];
+        const pastRes = await prisma.reservation.create({
+          data: {
+            turnId: turn.id,
+            complexId: complex1.id,
+            guestName,
+            guestPhone: '+54 9 291 400-0000',
+            type: 'PLAYER',
+          },
+        });
+        await prisma.payment.create({
+          data: {
+            payableType: 'RESERVATION',
+            payableId: pastRes.id,
+            amount: turn.price,
+            status: parseDateString(dateStr).dayOfWeek % 3 === 0 ? 'PENDING' : 'PAID',
+            date: dateStr,
+            recordedById: owner.id,
+          },
+        });
+      }
+    }
   }
 
   console.log('✅ Seed completado con éxito.');

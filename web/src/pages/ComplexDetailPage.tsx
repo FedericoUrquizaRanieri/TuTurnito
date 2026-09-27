@@ -4,6 +4,8 @@ import { api, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ScheduleGrid, PublicTurnData } from '../components/ScheduleGrid';
 import { RoleGateCard } from '../components/RoleGateCard';
+import { DatePillStrip } from '../components/DatePillStrip';
+import { todayStr } from '../lib/dates';
 import { getComplexGallery } from '../lib/stockPhotos';
 import {
   MapPin,
@@ -30,13 +32,7 @@ export const ComplexDetailPage: React.FC = () => {
   const [loadingTurns, setLoadingTurns] = useState(false);
 
   // Date selection state
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const d = String(today.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  });
+  const [selectedDate, setSelectedDate] = useState<string>(() => todayStr());
 
   // Professor link state
   const [isApprovedProfessor, setIsApprovedProfessor] = useState(false);
@@ -45,23 +41,6 @@ export const ComplexDetailPage: React.FC = () => {
 
   // Gallery state
   const [activeImage, setActiveImage] = useState(0);
-
-  // Generate 14 selectable date pills
-  const nextDays = Array.from({ length: 14 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-    const isToday = i === 0;
-    const isTomorrow = i === 1;
-
-    return {
-      dateStr,
-      dayNumber: d.getDate(),
-      dayName: isToday ? 'Hoy' : isTomorrow ? 'Mañana' : dayNames[d.getDay()],
-      monthName: d.toLocaleString('es-AR', { month: 'short' }),
-    };
-  });
 
   const fetchComplexDetails = async () => {
     if (!id) return;
@@ -234,7 +213,7 @@ export const ComplexDetailPage: React.FC = () => {
                 {isOwnerOfThis && (
                   <Link to="/owner" className="btn btn-lime btn-sm">
                     <LayoutDashboard size={16} />
-                    <span>Gestionar en Excel de Canchas</span>
+                    <span>Gestionar en Panel de Reservas</span>
                   </Link>
                 )}
 
@@ -321,51 +300,9 @@ export const ComplexDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Date Selector Navigation Carousel / Horizontal Bar */}
-        <div style={{
-          display: 'flex',
-          gap: '0.5rem',
-          overflowX: 'auto',
-          paddingBottom: '0.75rem',
-          marginBottom: '2rem',
-        }}>
-          {nextDays.map((day) => {
-            const isSelected = selectedDate === day.dateStr;
-
-            return (
-              <button
-                key={day.dateStr}
-                onClick={() => setSelectedDate(day.dateStr)}
-                style={{
-                  minWidth: '90px',
-                  padding: '0.75rem 0.5rem',
-                  borderRadius: 'var(--radius-md)',
-                  background: isSelected
-                    ? 'var(--accent-secondary)'
-                    : 'var(--bg-card)',
-                  color: isSelected ? 'var(--text-inverse)' : 'var(--text-main)',
-                  border: `1px solid ${isSelected ? 'transparent' : 'var(--border-subtle)'}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '0.2rem',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                  boxShadow: isSelected ? 'var(--shadow-glow-lime)' : 'none',
-                }}
-              >
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', opacity: isSelected ? 0.9 : 0.6 }}>
-                  {day.dayName}
-                </span>
-                <span style={{ fontSize: '1.35rem', fontWeight: 800, lineHeight: 1 }}>
-                  {day.dayNumber}
-                </span>
-                <span style={{ fontSize: '0.7rem', fontWeight: 600, opacity: isSelected ? 0.9 : 0.6 }}>
-                  {day.monthName}
-                </span>
-              </button>
-            );
-          })}
+        {/* Date Selector: next 14 days */}
+        <div style={{ marginBottom: '2rem' }}>
+          <DatePillStrip from={todayStr()} count={14} selected={selectedDate} onSelect={setSelectedDate} />
         </div>
 
         {/* Public Turn Grid */}
@@ -375,12 +312,10 @@ export const ComplexDetailPage: React.FC = () => {
           </div>
         ) : (
           <ScheduleGrid
-            mode="PUBLIC"
             complexId={complex.id}
             complexName={complex.name}
             isApprovedProfessor={isApprovedProfessor}
             turns={turns}
-            selectedDate={selectedDate}
             onRefreshTurns={fetchTurns}
           />
         )}

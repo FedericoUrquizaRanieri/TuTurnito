@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
-import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek } from './helpers';
+import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts } from './helpers';
 
 describe('reservations', () => {
   beforeAll(async () => {
@@ -10,18 +10,8 @@ describe('reservations', () => {
   it('handles concurrent turn generation for a never-queried range without errors', async () => {
     const { agent: owner } = await registerUser('DUEÑO');
     const complex = await createComplexForOwner(owner);
-    const [courtA] = complex.courts;
 
-    // Give every day of the week a template cell so any date range has turns to materialize.
-    const cells = Array.from({ length: 7 }).map((_, dayOfWeek) => ({
-      courtId: courtA.id,
-      dayOfWeek,
-      startTime: '08:00',
-      endTime: '09:30',
-      price: 12000,
-      availability: 'AVAILABLE' as const,
-    }));
-    await owner.put(`/api/complexes/${complex.id}/schedule`).send({ cells });
+    await configureCourts(owner, complex, { openTime: '08:00', closeTime: '12:30' });
 
     const from = '2027-03-01';
     const to = '2027-03-07';
@@ -44,15 +34,13 @@ describe('reservations', () => {
     const [courtA] = complex.courts;
     const dayOfWeek = 3;
 
-    await owner.put(`/api/complexes/${complex.id}/schedule`).send({
-      cells: [{ courtId: courtA.id, dayOfWeek, startTime: '18:00', endTime: '19:30', price: 14000, availability: 'AVAILABLE' }],
-    });
+    await configureCourts(owner, complex, { openTime: '18:00', closeTime: '19:30', basePrice: 14000 });
 
     const targetDate = nextDateForDayOfWeek(dayOfWeek);
     const turnsRes = await request(app)
       .get(`/api/complexes/${complex.id}/turns`)
       .query({ from: targetDate, to: targetDate });
-    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '18:00');
+    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '18:00' && t.courtId === courtA.id);
     expect(turn).toBeDefined();
 
     const body = { guestName: 'Carrera Concurrente', guestPhone: '2911112222' };
@@ -75,15 +63,13 @@ describe('reservations', () => {
     const [courtA] = complex.courts;
     const dayOfWeek = 4;
 
-    await owner.put(`/api/complexes/${complex.id}/schedule`).send({
-      cells: [{ courtId: courtA.id, dayOfWeek, startTime: '20:00', endTime: '21:30', price: 14000, availability: 'AVAILABLE' }],
-    });
+    await configureCourts(owner, complex, { openTime: '20:00', closeTime: '21:30', basePrice: 14000 });
 
     const targetDate = nextDateForDayOfWeek(dayOfWeek);
     const turnsRes = await request(app)
       .get(`/api/complexes/${complex.id}/turns`)
       .query({ from: targetDate, to: targetDate });
-    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '20:00');
+    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '20:00' && t.courtId === courtA.id);
 
     const booking = await request(app)
       .post(`/api/turns/${turn.id}/reservations`)

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
-import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek } from './helpers';
+import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts } from './helpers';
 
 describe('classes', () => {
   beforeAll(async () => {
@@ -13,15 +13,13 @@ describe('classes', () => {
     const [courtA] = complex.courts;
     const dayOfWeek = 5;
 
-    await owner.put(`/api/complexes/${complex.id}/schedule`).send({
-      cells: [{ courtId: courtA.id, dayOfWeek, startTime: '10:00', endTime: '11:00', price: 10000, availability: 'AVAILABLE' }],
-    });
+    await configureCourts(owner, complex, { openTime: '10:00', closeTime: '11:00', slotMinutes: 60, basePrice: 10000 });
 
     const targetDate = nextDateForDayOfWeek(dayOfWeek);
     const turnsRes = await request(app)
       .get(`/api/complexes/${complex.id}/turns`)
       .query({ from: targetDate, to: targetDate });
-    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '10:00');
+    const turn = turnsRes.body.turns.find((t: any) => t.startTime === '10:00' && t.courtId === courtA.id);
 
     const { agent: professor } = await registerUser('PROFESOR');
 

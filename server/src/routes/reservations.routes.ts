@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { requireAuth, requireRole, requireComplexOwner } from '../middleware/auth';
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/asyncHandler';
+import { HttpError } from '../middleware/HttpError';
 import {
   createReservation,
   cancelReservation,
@@ -12,6 +13,8 @@ import {
 } from '../services/reservation.service';
 
 const router = Router();
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
 const reservationSchema = z.object({
   guestName: z.string().min(2, 'El nombre es requerido'),
@@ -61,7 +64,7 @@ router.delete(
   }, 'Error al cancelar la reserva.')
 );
 
-// GET /api/complexes/:id/reservations (Owner reservations & payments view)
+// GET /api/complexes/:id/reservations?from&to (Owner reservations & payments view)
 router.get(
   '/complexes/:id/reservations',
   requireAuth,
@@ -69,7 +72,12 @@ router.get(
   requireComplexOwner,
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
-    const view = await getOwnerReservationsView(id);
+    const { from, to } = req.query;
+    if ((from !== undefined && (typeof from !== 'string' || !DATE_REGEX.test(from))) ||
+        (to !== undefined && (typeof to !== 'string' || !DATE_REGEX.test(to)))) {
+      throw new HttpError(400, 'Los parámetros "from" y "to" deben tener formato YYYY-MM-DD.');
+    }
+    const view = await getOwnerReservationsView(id, { from: from as string | undefined, to: to as string | undefined });
     return res.json(view);
   }, 'Error al obtener las reservas del complejo.')
 );

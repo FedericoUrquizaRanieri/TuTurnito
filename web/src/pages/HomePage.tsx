@@ -130,7 +130,7 @@ export const HomePage: React.FC = () => {
                 ¡Bienvenido a TuTurnito, {user.name}!
               </h3>
               <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>
-                Aún no tienes un complejo registrado. Da de alta tu club y configura tu Excel de Canchas para recibir reservas hoy mismo.
+                Aún no tienes un complejo registrado. Da de alta tu club y configura tu Panel de Reservas para recibir reservas hoy mismo.
               </p>
             </div>
             <Link to="/owner" className="btn btn-lime">

@@ -4,6 +4,7 @@ import { HttpError } from '../middleware/HttpError';
 import { UserPayload } from '../middleware/auth';
 import { formatDate } from './schedule.service';
 import { buildPaymentMap, getPaymentsByPayableIds, findOrCreatePaymentForPayable } from './payment.service';
+import { bookTurnTx, releaseReservationTx } from './booking';
 
 export interface CreateReservationInput {
   guestName: string;
@@ -22,7 +23,7 @@ export type CreateReservationResult =
  * OCCUPIED, reservation row, initial PENDING payment). Business conflicts
  * (turn already taken/blocked/missing) are returned as a structured result
  * instead of thrown — same convention as schedule.service.ts's
- * saveComplexSchedule — so the route can branch on it without parsing
+ * saveComplexCourts — so the route can branch on it without parsing
  * error-message prefixes. A genuine last-write race (both requests pass the
  * in-transaction check before either commits) still surfaces as a Prisma
  * P2002 on the unique `Reservation.turnId`, caught below and folded into
@@ -56,7 +57,7 @@ export async function createReservation(
     return await prisma.$transaction(async (tx) => {
       const turn = await tx.turn.findUnique({
         where: { id: turnId },
-        include: { court: true, reservation: true },
+        include: { court: { include: { complex: true } }, reservation: true },
       });
 
       if (!turn) {
@@ -65,41 +66,34 @@ export async function createReservation(
       if (turn.state === 'OCCUPIED' || turn.reservation) {
         return { success: false, conflictType: 'OCCUPIED', message: 'Este turno acaba de ser reservado por otro usuario.' } as const;
       }
-      if (turn.state === 'BLOCKED') {
+      if (turn.state === 'BLOCKED' || turn.state === 'TOURNAMENT') {
         return { success: false, conflictType: 'BLOCKED', message: 'Este turno se encuentra bloqueado y no está disponible para reserva.' } as const;
       }
 
-      const updatedTurn = await tx.turn.update({ where: { id: turnId }, data: { state: 'OCCUPIED' } });
+      const complex = turn.court.complex;
+      // An owner booking by hand (phone/walk-in) books on behalf of the
+      // client: the reservation isn't tied to the owner's own account.
+      const isOwnerBooking = requester?.id === complex.ownerId;
 
-      const newReservation = await tx.reservation.create({
-        data: {
-          turnId,
-          complexId: turn.court.complexId,
-          userId: requester ? requester.id : null,
-          guestName: input.guestName.trim(),
-          guestPhone: input.guestPhone.trim(),
-          guestEmail: input.guestEmail?.trim() || null,
-          type: input.type,
-          professorId: input.type === 'CLASS' && requester ? requester.id : null,
-          notes: input.notes?.trim() || null,
-        },
+      const booked = await bookTurnTx(tx, turn, {
+        complexId: complex.id,
+        userId: requester && !isOwnerBooking ? requester.id : null,
+        guestName: input.guestName,
+        guestPhone: input.guestPhone,
+        guestEmail: input.guestEmail,
+        type: input.type,
+        professorId: input.type === 'CLASS' && requester ? requester.id : null,
+        notes: input.notes,
+        recordedById: requester ? requester.id : complex.ownerId,
+        paymentNote: `Reserva creada para ${input.guestName}`,
       });
 
-      const complex = await tx.complex.findUnique({ where: { id: turn.court.complexId } });
+      if (!booked) {
+        return { success: false, conflictType: 'OCCUPIED', message: 'Este turno acaba de ser reservado por otro usuario.' } as const;
+      }
 
-      const payment = await tx.payment.create({
-        data: {
-          payableType: 'RESERVATION',
-          payableId: newReservation.id,
-          amount: turn.price,
-          status: 'PENDING',
-          date: turn.date,
-          recordedById: requester ? requester.id : complex?.ownerId || 'system',
-          notes: `Reserva creada para ${input.guestName}`,
-        },
-      });
-
-      return { success: true, reservation: newReservation, turn: updatedTurn, payment } as const;
+      const updatedTurn = await tx.turn.findUniqueOrThrow({ where: { id: turnId } });
+      return { success: true, reservation: booked.reservation, turn: updatedTurn, payment: booked.payment } as const;
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
@@ -126,7 +120,7 @@ function assertOwnsReservationComplex(reservation: { complex: { ownerId: string 
   }
 }
 
-/** Cancels a reservation: frees the turn (respecting a BLOCKED template), drops its payment, deletes the reservation row. */
+/** Cancels a reservation: frees the turn, drops its payment, deletes the reservation row. */
 export async function cancelReservation(reservationId: string, requester: UserPayload): Promise<void> {
   const reservation = await prisma.reservation.findUnique({
     where: { id: reservationId },
@@ -139,32 +133,21 @@ export async function cancelReservation(reservationId: string, requester: UserPa
 
   assertCanCancelReservation(reservation, requester);
 
-  await prisma.$transaction(async (tx) => {
-    const [year, month, day] = reservation.turn.date.split('-').map(Number);
-    const dayOfWeek = new Date(year, month - 1, day).getDay();
-
-    const template = await tx.templateCell.findUnique({
-      where: {
-        courtId_dayOfWeek_startTime: {
-          courtId: reservation.turn.courtId,
-          dayOfWeek,
-          startTime: reservation.turn.startTime,
-        },
-      },
-    });
-
-    const nextState = template && template.availability === 'BLOCKED' ? 'BLOCKED' : 'AVAILABLE';
-
-    await tx.turn.update({ where: { id: reservation.turnId }, data: { state: nextState } });
-    await tx.payment.deleteMany({ where: { payableType: 'RESERVATION', payableId: reservation.id } });
-    await tx.reservation.delete({ where: { id: reservationId } });
-  });
+  // Cancelling one occurrence of a fixed booking flags the turn so the
+  // generator doesn't book that same week again.
+  await prisma.$transaction((tx) =>
+    releaseReservationTx(tx, reservation, reservation.fixedBookingId ? { manualOverride: true } : {})
+  );
 }
 
-/** Owner's view of a complex's reservations, joined with payment status and running totals. */
-export async function getOwnerReservationsView(complexId: string) {
+/** Owner's view of a complex's reservations (optionally within a date range), joined with payment status and totals. */
+export async function getOwnerReservationsView(complexId: string, range: { from?: string; to?: string } = {}) {
+  const dateFilter: { gte?: string; lte?: string } = {};
+  if (range.from) dateFilter.gte = range.from;
+  if (range.to) dateFilter.lte = range.to;
+
   const reservations = await prisma.reservation.findMany({
-    where: { complexId },
+    where: { complexId, ...(range.from || range.to ? { turn: { date: dateFilter } } : {}) },
     include: {
       turn: { include: { court: true } },
       user: { select: { id: true, name: true, email: true, phone: true } },
@@ -200,6 +183,7 @@ export async function getOwnerReservationsView(complexId: string) {
       guestPhone: r.guestPhone,
       guestEmail: r.guestEmail,
       type: r.type,
+      fixedBookingId: r.fixedBookingId,
       user: r.user,
       professor: r.professor,
       price: r.turn.price,

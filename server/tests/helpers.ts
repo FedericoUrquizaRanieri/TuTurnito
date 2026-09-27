@@ -9,7 +9,7 @@ export async function resetDb() {
   await prisma.payment.deleteMany({});
   await prisma.reservation.deleteMany({});
   await prisma.turn.deleteMany({});
-  await prisma.templateCell.deleteMany({});
+  await prisma.fixedBooking.deleteMany({});
   await prisma.court.deleteMany({});
   await prisma.professorRequest.deleteMany({});
   await prisma.professorComplex.deleteMany({});
@@ -75,6 +75,31 @@ export function nextDateForDayOfWeek(dayOfWeek: number): string {
   const d = new Date();
   const diff = (dayOfWeek - d.getDay() + 7) % 7 || 7;
   d.setDate(d.getDate() + diff);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+type CourtRange = { openTime: string; closeTime: string; slotMinutes: number; basePrice: number };
+
+/** Saves the complex's courts with the given range (same for every court unless overridden per index). */
+export async function configureCourts(
+  agent: ReturnType<typeof request.agent>,
+  complex: { id: string; courts: { id: string; name: string }[] },
+  range: Partial<CourtRange> = {},
+  perCourt: Partial<CourtRange>[] = []
+) {
+  const base: CourtRange = { openTime: '08:00', closeTime: '23:00', slotMinutes: 90, basePrice: 12000, ...range };
+  return agent.put(`/api/complexes/${complex.id}/courts`).send({
+    courts: complex.courts.map((c, i) => ({ id: c.id, name: c.name, order: i, ...base, ...(perCourt[i] || {}) })),
+  });
+}
+
+/** Today shifted by N days, as YYYY-MM-DD. */
+export function dateFromToday(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');

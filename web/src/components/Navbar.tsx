@@ -133,7 +133,7 @@ export const Navbar: React.FC = () => {
                   <ShieldCheck size={14} color="var(--accent-cyan)" />
                   <div>
                     <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>Carlos Dueño</div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Excel canchas y cobros</div>
+                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Panel de reservas y cobros</div>
                   </div>
                 </button>
                 <button
