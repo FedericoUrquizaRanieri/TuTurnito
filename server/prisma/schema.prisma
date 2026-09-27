@@ -64,6 +64,7 @@ model User {
 model Complex {
   id           String    @id @default(uuid())
   name         String
+  slug         String    @unique // URL pública: tuturnito.com/<slug>
   location     String    // Ciudad / Zona (ej: "Bahía Blanca", "Palermo, CABA")
   address      String    // Dirección exacta (ej: "Av. Alem 1234")
   description  String?

@@ -5,6 +5,8 @@ import { requireAuth, requireRole, requireComplexOwner } from '../middleware/aut
 import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
+import { Prisma } from '@prisma/client';
+import { generateUniqueSlug, isSlugTaken, slugFormatError } from '../services/slug';
 
 const router = Router();
 
@@ -17,6 +19,12 @@ const complexSchema = z.object({
   openingHours: z.string().optional(),
   imageUrl: z.string().optional(),
   timezone: z.string().default('America/Argentina/Buenos_Aires'),
+});
+
+// The owner may customize the public URL when editing; on create it's
+// always derived from the name.
+const complexUpdateSchema = complexSchema.partial().extend({
+  slug: z.string().trim().toLowerCase().optional(),
 });
 
 // GET /api/complexes (Public catalog with search & filters)
@@ -62,6 +70,7 @@ router.get(
 
       return {
         id: c.id,
+        slug: c.slug,
         name: c.name,
         location: c.location,
         address: c.address,
@@ -80,14 +89,14 @@ router.get(
   }, 'Error al obtener el catálogo de complejos.')
 );
 
-// GET /api/complexes/:id (Public complex detail)
+// GET /api/complexes/:idOrSlug (Public complex detail, by id or by public slug)
 router.get(
   '/:id',
   asyncHandler(async (req: Request, res: Response) => {
-    const id = req.params.id as string;
+    const idOrSlug = req.params.id as string;
 
-    const complex = await prisma.complex.findUnique({
-      where: { id },
+    const complex = await prisma.complex.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug.toLowerCase() }] },
       include: {
         owner: { select: { id: true, name: true, phone: true, email: true } },
         courts: { where: { active: true }, orderBy: { order: 'asc' } },
@@ -111,26 +120,41 @@ router.post(
   asyncHandler(async (req: Request, res: Response) => {
     const { name, location, address, description, phone, openingHours, imageUrl, timezone } = req.body;
 
-    const newComplex = await prisma.complex.create({
-      data: {
-        name: name.trim(),
-        location: location.trim(),
-        address: address.trim(),
-        description: description?.trim() || null,
-        phone: phone?.trim() || null,
-        openingHours: openingHours?.trim() || 'Lunes a Domingo 08:00 - 23:30',
-        imageUrl: imageUrl?.trim() || null,
-        timezone,
-        ownerId: req.user!.id,
-        courts: {
-          create: [
-            { name: 'Cancha 1 Cristal', order: 0 },
-            { name: 'Cancha 2 Panorámica', order: 1 },
-          ],
+    const createWithSlug = async () =>
+      prisma.complex.create({
+        data: {
+          slug: await generateUniqueSlug(name),
+          name: name.trim(),
+          location: location.trim(),
+          address: address.trim(),
+          description: description?.trim() || null,
+          phone: phone?.trim() || null,
+          openingHours: openingHours?.trim() || 'Lunes a Domingo 08:00 - 23:30',
+          imageUrl: imageUrl?.trim() || null,
+          timezone,
+          ownerId: req.user!.id,
+          courts: {
+            create: [
+              { name: 'Cancha 1 Cristal', order: 0 },
+              { name: 'Cancha 2 Panorámica', order: 1 },
+            ],
+          },
         },
-      },
-      include: { courts: true },
-    });
+        include: { courts: true },
+      });
+
+    // Two complexes with the same name created at the same instant can race
+    // for the same slug; the loser just picks the next free one.
+    let newComplex;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        newComplex = await createWithSlug();
+        break;
+      } catch (error) {
+        const isSlugClash = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+        if (!isSlugClash || attempt >= 2) throw error;
+      }
+    }
 
     return res.status(201).json({ message: 'Complejo registrado exitosamente.', complex: newComplex });
   }, 'Error al registrar el complejo.')
@@ -142,10 +166,18 @@ router.put(
   requireAuth,
   requireRole('DUEÑO'),
   requireComplexOwner,
-  validate(complexSchema.partial()),
+  validate(complexUpdateSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const id = req.params.id as string;
     const data = req.body;
+
+    if (data.slug !== undefined) {
+      const formatError = slugFormatError(data.slug);
+      if (formatError) throw new HttpError(400, formatError);
+      if (await isSlugTaken(data.slug, id)) {
+        throw new HttpError(409, 'Esa dirección ya la usa otro complejo. Elegí otra.');
+      }
+    }
 
     const updated = await prisma.complex.update({
       where: { id },
@@ -158,6 +190,7 @@ router.put(
         ...(data.openingHours !== undefined ? { openingHours: data.openingHours?.trim() || null } : {}),
         ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl?.trim() || null } : {}),
         ...(data.timezone ? { timezone: data.timezone } : {}),
+        ...(data.slug ? { slug: data.slug } : {}),
       },
     });
 

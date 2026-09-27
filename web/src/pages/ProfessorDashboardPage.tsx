@@ -315,7 +315,7 @@ export const ProfessorDashboardPage: React.FC = () => {
                     </p>
 
                     <div style={{ marginTop: 'auto', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem' }}>
-                      <Link to={`/complexes/${c.id}`} className="btn btn-lime btn-sm" style={{ width: '100%', justifyContent: 'center' }}>
+                      <Link to={`/${c.slug}`} className="btn btn-lime btn-sm" style={{ width: '100%', justifyContent: 'center' }}>
                         <Sparkles size={15} />
                         <span>Reservar Cancha para Clase</span>
                       </Link>

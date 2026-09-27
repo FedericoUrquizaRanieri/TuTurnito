@@ -210,7 +210,7 @@ export const HomePage: React.FC = () => {
                     </div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-subtle)' }}>por turno</div>
                   </div>
-                  <Link to={`/complexes/${complex.id}`} className="btn btn-primary btn-sm">
+                  <Link to={`/${complex.slug}`} className="btn btn-primary btn-sm">
                     <span>Ver disponibilidad</span>
                     <ChevronRight size={16} />
                   </Link>

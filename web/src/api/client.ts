@@ -136,10 +136,11 @@ export const api = {
       const qs = q.toString() ? `?${q.toString()}` : '';
       return request<{ complexes: ComplexSummary[] }>(`/complexes${qs}`);
     },
-    getById: (id: string) => request<{ complex: Complex }>(`/complexes/${id}`),
+    /** Accepts the complex id or its public slug. */
+    getById: (idOrSlug: string) => request<{ complex: Complex }>(`/complexes/${encodeURIComponent(idOrSlug)}`),
     create: (body: Partial<Complex>) =>
       request<{ message: string; complex: Complex }>('/complexes', { method: 'POST', body: JSON.stringify(body) }),
-    update: (id: string, body: Partial<Complex>) =>
+    update: (id: string, body: Partial<Omit<Complex, 'courts'>>) =>
       request<{ message: string; complex: Complex }>(`/complexes/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
   },
 

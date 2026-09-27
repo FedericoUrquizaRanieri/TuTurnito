@@ -42,6 +42,8 @@ export interface FixedBooking {
 /** The public catalog card shape from GET /api/complexes. */
 export interface ComplexSummary {
   id: string;
+  /** Public URL: /<slug> */
+  slug: string;
   name: string;
   location: string;
   address: string;
@@ -58,6 +60,8 @@ export interface ComplexSummary {
 /** The full complex shape from GET /api/complexes/:id and POST/PUT /api/complexes. */
 export interface Complex {
   id: string;
+  /** Public URL: /<slug> */
+  slug: string;
   name: string;
   location: string;
   address: string;

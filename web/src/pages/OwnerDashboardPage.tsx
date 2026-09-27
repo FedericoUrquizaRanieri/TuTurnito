@@ -63,6 +63,7 @@ export const OwnerDashboardPage: React.FC = () => {
   // Settings update state
   const [settingsForm, setSettingsForm] = useState({
     name: '',
+    slug: '',
     location: '',
     address: '',
     description: '',
@@ -102,6 +103,7 @@ export const OwnerDashboardPage: React.FC = () => {
         setCurrentComplex(res.complex);
         setSettingsForm({
           name: res.complex.name || '',
+          slug: res.complex.slug || '',
           location: res.complex.location || '',
           address: res.complex.address || '',
           description: res.complex.description || '',
@@ -187,7 +189,8 @@ export const OwnerDashboardPage: React.FC = () => {
     setSavingSettings(true);
     setSettingsSuccess(false);
     try {
-      await api.complexes.update(selectedComplexId, settingsForm);
+      const res = await api.complexes.update(selectedComplexId, settingsForm);
+      setCurrentComplex((prev) => (prev ? { ...prev, ...res.complex } : prev));
       setSettingsSuccess(true);
       setTimeout(() => setSettingsSuccess(false), 3000);
       fetchOwnerComplexes();
@@ -361,7 +364,7 @@ export const OwnerDashboardPage: React.FC = () => {
                 </select>
               )}
 
-              <Link to={`/complexes/${selectedComplexId}`} className="btn btn-secondary btn-sm" target="_blank">
+              <Link to={`/${currentComplex?.slug || ''}`} className="btn btn-secondary btn-sm" target="_blank">
                 <span>Ver Página Pública</span>
               </Link>
             </div>
@@ -582,6 +585,36 @@ export const OwnerDashboardPage: React.FC = () => {
                     value={settingsForm.name}
                     onChange={(e) => setSettingsForm({ ...settingsForm, name: e.target.value })}
                   />
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="complex-slug">Dirección pública (link para compartir)</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                      {window.location.host}/
+                    </span>
+                    <input
+                      id="complex-slug"
+                      type="text"
+                      required
+                      minLength={3}
+                      maxLength={60}
+                      pattern="[a-z0-9]+(-[a-z0-9]+)*"
+                      title="Solo minúsculas, números y guiones"
+                      className="form-input"
+                      value={settingsForm.slug}
+                      onChange={(e) =>
+                        setSettingsForm({
+                          ...settingsForm,
+                          // Typing-friendly: spaces become dashes, the rest is left for validation.
+                          slug: e.target.value.toLowerCase().replace(/\s+/g, '-'),
+                        })
+                      }
+                    />
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.35rem' }}>
+                    Solo minúsculas, números y guiones. Si la cambiás, los links que ya compartiste dejan de funcionar.
+                  </p>
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>

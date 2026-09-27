@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { ScheduleGrid, PublicTurnData } from '../components/ScheduleGrid';
@@ -20,7 +20,12 @@ import {
 } from 'lucide-react';
 
 export const ComplexDetailPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  // Reached either at the public /<slug> URL or at the legacy /complexes/<id>
+  // one (links shared before slugs existed); the latter is redirected.
+  const { id: legacyId, slug } = useParams<{ id?: string; slug?: string }>();
+  const idOrSlug = slug || legacyId;
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
 
   const [complex, setComplex] = useState<any | null>(null);
@@ -43,12 +48,17 @@ export const ComplexDetailPage: React.FC = () => {
   const [activeImage, setActiveImage] = useState(0);
 
   const fetchComplexDetails = async () => {
-    if (!id) return;
+    if (!idOrSlug) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await api.complexes.getById(id);
+      const res = await api.complexes.getById(idOrSlug);
+      const id = res.complex.id;
       setComplex(res.complex);
+
+      if (location.pathname !== `/${res.complex.slug}`) {
+        navigate(`/${res.complex.slug}`, { replace: true });
+      }
 
       // Check professor connection if user is professor
       if (user?.role === 'PROFESOR') {
@@ -70,7 +80,8 @@ export const ComplexDetailPage: React.FC = () => {
   };
 
   const fetchTurns = async () => {
-    if (!id) return;
+    if (!complex) return;
+    const id = complex.id;
     setLoadingTurns(true);
     try {
       const res = await api.turns.getByDateRange(id, selectedDate, selectedDate);
@@ -85,7 +96,7 @@ export const ComplexDetailPage: React.FC = () => {
   useEffect(() => {
     fetchComplexDetails();
     setActiveImage(0);
-  }, [id, user]);
+  }, [idOrSlug, user]);
 
   useEffect(() => {
     if (complex) {
@@ -94,10 +105,10 @@ export const ComplexDetailPage: React.FC = () => {
   }, [selectedDate, complex]);
 
   const handleRequestJoinAsProfessor = async () => {
-    if (!id) return;
+    if (!complex) return;
     setRequestLoading(true);
     try {
-      await api.professors.sendRequest(id);
+      await api.professors.sendRequest(complex.id);
       setProfessorRequestSent(true);
     } catch (err: any) {
       alert(err.message || 'Error al enviar solicitud.');

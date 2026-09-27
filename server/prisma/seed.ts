@@ -76,6 +76,7 @@ async function main() {
   const complex1 = await prisma.complex.create({
     data: {
       name: 'Pádel Master Club Bahía',
+      slug: 'padel-master-club-bahia',
       location: 'Bahía Blanca',
       address: 'Av. Alem 1850',
       description: 'El club de pádel más completo de Bahía Blanca. Canchas profesionales panorámicas con césped texturado e iluminación LED de alta potencia. Bar, vestuarios y estacionamiento privado.',
@@ -97,6 +98,7 @@ async function main() {
   const complex2 = await prisma.complex.create({
     data: {
       name: 'Pádel Point Palermo',
+      slug: 'padel-point-palermo',
       location: 'Palermo, CABA',
       address: 'Av. del Libertador 4200',
       description: '4 canchas techadas de última generación en el corazón de Palermo. Clases personalizadas, torneos semanales, confitería y tienda oficial.',

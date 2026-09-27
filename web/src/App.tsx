@@ -25,6 +25,9 @@ export const App: React.FC = () => {
             <Route path="/professor" element={<ProfessorDashboardPage />} />
             <Route path="/auth" element={<AuthPage />} />
             <Route path="/profile" element={<ProfilePage />} />
+            {/* Public complex page at the root (tuturnito.com/<slug>) — must stay
+                after every fixed route; reserved words are enforced server-side. */}
+            <Route path="/:slug" element={<ComplexDetailPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <Footer />
