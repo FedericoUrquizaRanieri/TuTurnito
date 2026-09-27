@@ -189,7 +189,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ cls, students, onAdde
 
           <div>
             <label className="form-label" htmlFor="new-enrollment-price">Valor de su turno en esta clase</label>
-            <input id="new-enrollment-price" type="number" min="0" step="500" required className="form-input" value={price} onChange={(e) => setPrice(e.target.value)} />
+            <input id="new-enrollment-price" type="number" min="0" step="any" required className="form-input" value={price} onChange={(e) => setPrice(e.target.value)} />
           </div>
 
           <button type="submit" className="btn btn-lime" disabled={busy || (mode === 'EXISTING' && !studentId)} style={{ justifyContent: 'center' }}>

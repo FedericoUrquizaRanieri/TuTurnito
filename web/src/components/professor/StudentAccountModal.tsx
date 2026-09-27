@@ -120,7 +120,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
             id="enrollment-price"
             type="number"
             min="0"
-            step="500"
+            step="any"
             className="form-input"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
@@ -153,7 +153,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
             Registrar cobro
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.5rem' }}>
-            <input type="number" min="1" step="500" className="form-input" placeholder="Monto" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Monto" />
+            <input type="number" min="1" step="any" className="form-input" placeholder="Monto" value={amount} onChange={(e) => setAmount(e.target.value)} aria-label="Monto" />
             <input type="date" className="form-input" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Fecha del cobro" />
           </div>
           <input className="form-input" placeholder="Nota (opcional)" value={notes} onChange={(e) => setNotes(e.target.value)} style={{ marginTop: '0.5rem' }} aria-label="Nota" />

@@ -186,7 +186,7 @@ export const TurnActionModal: React.FC<TurnActionModalProps> = ({ complexId, tur
               <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Precio de este turno</span>
               <input
                 type="number"
-                step="500"
+                step="any"
                 min="0"
                 className="form-input"
                 value={price}

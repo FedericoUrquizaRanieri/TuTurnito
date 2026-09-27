@@ -172,7 +172,7 @@ export const CourtsConfigPanel: React.FC<CourtsConfigPanelProps> = ({ complexId,
                     <input
                       type="number"
                       min="0"
-                      step="500"
+                      step="any"
                       className="form-input"
                       value={court.basePrice}
                       onChange={(e) => update(court.key, { basePrice: Number(e.target.value) })}
