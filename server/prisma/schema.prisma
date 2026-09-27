@@ -59,6 +59,7 @@ model User {
   professorRequests ProfessorRequest[] @relation("ProfessorRequests")
   complexLinks      ProfessorComplex[] @relation("ProfessorComplexLinks")
   students          Student[]          @relation("ProfessorStudents")
+  classSchedules    ClassSchedule[]    @relation("ProfessorClassSchedules")
 }
 
 model Complex {
@@ -83,6 +84,7 @@ model Complex {
   professorRequests ProfessorRequest[]
   professorLinks    ProfessorComplex[]
   fixedBookings     FixedBooking[]
+  classSchedules    ClassSchedule[]
 }
 
 model Court {
@@ -101,8 +103,9 @@ model Court {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  turns         Turn[]
-  fixedBookings FixedBooking[]
+  turns          Turn[]
+  fixedBookings  FixedBooking[]
+  classSchedules ClassSchedule[]
 }
 
 model Turn {
@@ -143,6 +146,8 @@ model Reservation {
   notes       String?
   fixedBookingId String?
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id], onDelete: SetNull)
+  classScheduleId String?
+  classSchedule   ClassSchedule? @relation(fields: [classScheduleId], references: [id], onDelete: SetNull)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 }
@@ -208,6 +213,50 @@ model ProfessorComplex {
   @@unique([professorId, complexId])
 }
 
+// Horario de clases de un profesor: una cancha, varios días de la semana y
+// una franja horaria (ej. Cancha 2, Lun/Mié/Vie 18:00-21:00). Cada turno de
+// la franja es una "clase" y se materializa como Reservation de tipo CLASS.
+// Es independiente de FixedBooking: el dueño no lo ve en "Turnos fijos".
+model ClassSchedule {
+  id          String   @id @default(uuid())
+  professorId String
+  professor   User     @relation("ProfessorClassSchedules", fields: [professorId], references: [id], onDelete: Cascade)
+  complexId   String
+  complex     Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  courtId     String
+  court       Court    @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  daysOfWeek  Int[]    // 0 = Domingo ... 6 = Sábado
+  startTime   String   // "HH:MM" (inicio del primer turno)
+  endTime     String   // "HH:MM" (fin del último turno)
+  startDate   String   // "YYYY-MM-DD"
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  reservations Reservation[]
+  enrollments  ClassEnrollment[]
+}
+
+// Alumno inscripto en una clase semanal (horario + día + hora de inicio),
+// con el valor que paga por cada clase. Máximo 4 por clase. Al quitarlo se
+// cierra con endDate para que su deuda histórica se conserve.
+model ClassEnrollment {
+  id              String        @id @default(uuid())
+  classScheduleId String
+  classSchedule   ClassSchedule @relation(fields: [classScheduleId], references: [id], onDelete: Cascade)
+  dayOfWeek       Int
+  startTime       String        // "HH:MM"
+  studentId       String
+  student         Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  price           Float
+  startDate       String        // "YYYY-MM-DD": clases desde esta fecha generan deuda
+  endDate         String?       // "YYYY-MM-DD": exclusivo; null = sigue inscripto
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([classScheduleId, dayOfWeek, startTime])
+}
+
 model Student {
   id          String   @id @default(uuid())
   professorId String
@@ -219,4 +268,6 @@ model Student {
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  enrollments ClassEnrollment[]
 }

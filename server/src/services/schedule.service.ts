@@ -95,7 +95,7 @@ export function toMinutes(time: string): number {
   return h * 60 + m;
 }
 
-function fromMinutes(total: number): string {
+export function fromMinutes(total: number): string {
   const wrapped = total % (24 * 60);
   return `${String(Math.floor(wrapped / 60)).padStart(2, '0')}:${String(wrapped % 60).padStart(2, '0')}`;
 }
@@ -109,6 +109,79 @@ export function buildCourtSlots(court: { openTime: string; closeTime: string; sl
     slots.push({ start: fromMinutes(m), end: fromMinutes(m + court.slotMinutes) });
   }
   return slots;
+}
+
+/**
+ * The court's slots that fit entirely inside [startTime, endTime] — the
+ * individual classes of a professor's class schedule. Compares in minutes so
+ * a range ending at "24:00" works.
+ */
+export function slotsWithin(
+  court: { openTime: string; closeTime: string; slotMinutes: number },
+  startTime: string,
+  endTime: string
+) {
+  const from = toMinutes(startTime);
+  const to = toMinutes(endTime);
+  return buildCourtSlots(court).filter((s) => {
+    const start = toMinutes(s.start);
+    return start >= from && start + court.slotMinutes <= to;
+  });
+}
+
+/**
+ * Materializes every active professor class schedule in the range as CLASS
+ * reservations (one per turn inside the schedule's time window, on its
+ * weekdays). Same rules as fixed bookings: only free turns the owner hasn't
+ * touched are booked.
+ */
+async function applyClassSchedules(tx: Prisma.TransactionClient, complexId: string, fromDateStr: string, toDateStr: string) {
+  const schedules = await tx.classSchedule.findMany({
+    where: { complexId, active: true, startDate: { lte: toDateStr } },
+    include: { court: true, professor: { select: { id: true, name: true, phone: true } } },
+  });
+  if (schedules.length === 0) return;
+
+  const candidates = await tx.turn.findMany({
+    where: {
+      courtId: { in: schedules.map((s) => s.courtId) },
+      date: { gte: fromDateStr, lte: toDateStr },
+      state: 'AVAILABLE',
+      manualOverride: false,
+      reservation: null,
+    },
+  });
+
+  for (const turn of candidates) {
+    const { dayOfWeek } = parseDateString(turn.date);
+    const start = toMinutes(turn.startTime);
+    const schedule = schedules.find(
+      (s) =>
+        s.courtId === turn.courtId &&
+        s.daysOfWeek.includes(dayOfWeek) &&
+        s.startDate <= turn.date &&
+        start >= toMinutes(s.startTime) &&
+        start + s.court.slotMinutes <= toMinutes(s.endTime)
+    );
+    if (!schedule) continue;
+
+    await bookTurnTx(
+      tx,
+      turn,
+      {
+        complexId,
+        userId: schedule.professorId,
+        guestName: `Clase - ${schedule.professor.name}`,
+        guestPhone: schedule.professor.phone || '-',
+        type: 'CLASS',
+        professorId: schedule.professorId,
+        classScheduleId: schedule.id,
+        recordedById: schedule.professorId,
+        paymentNote: `Clase de ${schedule.professor.name}`,
+      },
+      { requireNoOverride: true }
+    );
+  }
 }
 
 /**
@@ -178,9 +251,9 @@ async function applyFixedBookings(tx: Prisma.TransactionClient, complexId: strin
  * Ensures turns are materialized for the given complex in the date range.
  * Idempotent: creates missing turns from each court's range, re-syncs
  * untouched free turns (price/end time), removes free turns that fell out of
- * the range, and books the fixed bookings that apply. Occupied turns and
- * turns the owner edited by hand are never overwritten. Past dates are only
- * read, never generated.
+ * the range, and books the fixed bookings and class schedules that apply.
+ * Occupied turns and turns the owner edited by hand are never overwritten.
+ * Past dates are only read, never generated.
  *
  * Accepts an optional `client` so it can be composed inside an outer
  * transaction (e.g. from `saveComplexCourts`). When called standalone
@@ -279,6 +352,7 @@ export async function ensureTurnsForRange(
       }
 
       await applyFixedBookings(tx, complexId, genFrom, toDateStr);
+      await applyClassSchedules(tx, complexId, genFrom, toDateStr);
     };
 
     if (client === prisma) {

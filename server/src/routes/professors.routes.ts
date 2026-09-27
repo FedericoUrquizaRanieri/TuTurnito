@@ -12,11 +12,23 @@ import {
   createStudent,
   updateStudent,
   deleteStudent,
-  listProfessorPayments,
-  createProfessorPayment,
-  updateProfessorPayment,
-  getProfessorHistory,
 } from '../services/professor.service';
+import {
+  listClassSchedules,
+  createClassSchedule,
+  deleteClassSchedule,
+  getWeeklyClasses,
+  addEnrollment,
+  updateEnrollmentPrice,
+  removeEnrollment,
+  getStudentAccount,
+  createStudentPayment,
+  deleteStudentPayment,
+  classScheduleCreateSchema,
+  enrollmentCreateSchema,
+  enrollmentUpdateSchema,
+  studentPaymentSchema,
+} from '../services/classSchedule.service';
 
 const router = Router();
 
@@ -27,18 +39,7 @@ const studentSchema = z.object({
   notes: z.string().optional(),
 });
 
-const professorPaymentSchema = z.object({
-  studentId: z.string().min(1, 'El alumno es requerido'),
-  amount: z.number().positive('El monto debe ser mayor a 0'),
-  status: z.enum(['PAID', 'PENDING']).default('PAID'),
-  date: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-const professorPaymentUpdateSchema = z.object({
-  status: z.enum(['PAID', 'PENDING']).optional(),
-  amount: z.number().positive('El monto debe ser mayor a 0').optional(),
-});
+const professorOnly = [requireAuth, requireRole('PROFESOR')];
 
 const complexLinkRequestSchema = z.object({
   complexId: z.string().min(1, 'ID de complejo requerido.'),
@@ -103,7 +104,7 @@ router.put(
   }, 'Error al procesar la solicitud.')
 );
 
-// GET /api/professors/students (List professor students with pending balance)
+// GET /api/professors/students (List professor students with their balance)
 router.get(
   '/students',
   requireAuth,
@@ -139,7 +140,7 @@ router.put(
   }, 'Error al actualizar alumno.')
 );
 
-// DELETE /api/professors/students/:studentId (Soft delete student, keeps payment history)
+// DELETE /api/professors/students/:studentId (Soft delete student, keeps payments and charges)
 router.delete(
   '/students/:studentId',
   requireAuth,
@@ -151,55 +152,108 @@ router.delete(
   }, 'Error al eliminar alumno.')
 );
 
-// GET /api/professors/payments (Get professor student payments)
+// GET /api/professors/class-schedules (Professor's recurring court bookings)
 router.get(
-  '/payments',
-  requireAuth,
-  requireRole('PROFESOR'),
+  '/class-schedules',
+  ...professorOnly,
   asyncHandler(async (req: Request, res: Response) => {
-    const { studentId } = req.query;
-    const payments = await listProfessorPayments(
-      req.user!.id,
-      typeof studentId === 'string' ? studentId : undefined
-    );
-    return res.json({ payments });
-  }, 'Error al obtener los cobros.')
+    const schedules = await listClassSchedules(req.user!.id);
+    return res.json({ schedules });
+  }, 'Error al obtener los horarios de clases.')
 );
 
-// POST /api/professors/payments (Register student payment)
+// POST /api/professors/class-schedules (Book a court on several weekdays within a time window)
 router.post(
-  '/payments',
-  requireAuth,
-  requireRole('PROFESOR'),
-  validate(professorPaymentSchema),
+  '/class-schedules',
+  ...professorOnly,
+  validate(classScheduleCreateSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const payment = await createProfessorPayment(req.user!.id, req.body);
-    return res.status(201).json({ message: 'Cobro registrado exitosamente.', payment });
-  }, 'Error al registrar cobro.')
+    const result = await createClassSchedule(req.user!.id, req.body);
+    return res.status(201).json({ message: 'Horario de clases reservado.', ...result });
+  }, 'Error al reservar el horario de clases.')
 );
 
-// PUT /api/professors/payments/:paymentId (Update payment status)
-router.put(
-  '/payments/:paymentId',
-  requireAuth,
-  requireRole('PROFESOR'),
-  validate(professorPaymentUpdateSchema),
+// DELETE /api/professors/class-schedules/:scheduleId (Ends it: frees upcoming classes)
+router.delete(
+  '/class-schedules/:scheduleId',
+  ...professorOnly,
   asyncHandler(async (req: Request, res: Response) => {
-    const paymentId = req.params.paymentId as string;
-    const payment = await updateProfessorPayment(paymentId, req.user!.id, req.body);
-    return res.json({ message: 'Cobro actualizado exitosamente.', payment });
-  }, 'Error al actualizar cobro.')
+    await deleteClassSchedule(req.user!.id, req.params.scheduleId as string);
+    return res.json({ message: 'Horario de clases eliminado y próximas clases liberadas.' });
+  }, 'Error al eliminar el horario de clases.')
 );
 
-// GET /api/professors/history (Professor class history & summary)
+// GET /api/professors/weekly-classes (Weekly grid: classes with their students and balances)
 router.get(
-  '/history',
-  requireAuth,
-  requireRole('PROFESOR'),
+  '/weekly-classes',
+  ...professorOnly,
   asyncHandler(async (req: Request, res: Response) => {
-    const history = await getProfessorHistory(req.user!.id);
-    return res.json(history);
-  }, 'Error al obtener el historial del profesor.')
+    const data = await getWeeklyClasses(req.user!.id);
+    return res.json(data);
+  }, 'Error al obtener la grilla de clases.')
+);
+
+// POST /api/professors/enrollments (Add a student, existing or new, to a class)
+router.post(
+  '/enrollments',
+  ...professorOnly,
+  validate(enrollmentCreateSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const enrollment = await addEnrollment(req.user!.id, req.body);
+    return res.status(201).json({ message: 'Alumno agregado a la clase.', enrollment });
+  }, 'Error al agregar el alumno a la clase.')
+);
+
+// PUT /api/professors/enrollments/:enrollmentId (Change what the student pays per class)
+router.put(
+  '/enrollments/:enrollmentId',
+  ...professorOnly,
+  validate(enrollmentUpdateSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const enrollment = await updateEnrollmentPrice(req.user!.id, req.params.enrollmentId as string, req.body.price);
+    return res.json({ message: 'Valor actualizado.', enrollment });
+  }, 'Error al actualizar el valor de la clase.')
+);
+
+// DELETE /api/professors/enrollments/:enrollmentId (Remove the student from the class from today on)
+router.delete(
+  '/enrollments/:enrollmentId',
+  ...professorOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    await removeEnrollment(req.user!.id, req.params.enrollmentId as string);
+    return res.json({ message: 'Alumno quitado de la clase.' });
+  }, 'Error al quitar el alumno de la clase.')
+);
+
+// GET /api/professors/students/:studentId/account (Balance, charged classes and payments)
+router.get(
+  '/students/:studentId/account',
+  ...professorOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const account = await getStudentAccount(req.user!.id, req.params.studentId as string);
+    return res.json(account);
+  }, 'Error al obtener la cuenta del alumno.')
+);
+
+// POST /api/professors/students/:studentId/payments (Record a payment received from the student)
+router.post(
+  '/students/:studentId/payments',
+  ...professorOnly,
+  validate(studentPaymentSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const payment = await createStudentPayment(req.user!.id, req.params.studentId as string, req.body);
+    return res.status(201).json({ message: 'Cobro registrado.', payment });
+  }, 'Error al registrar el cobro.')
+);
+
+// DELETE /api/professors/payments/:paymentId (Delete a payment recorded by mistake)
+router.delete(
+  '/payments/:paymentId',
+  ...professorOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    await deleteStudentPayment(req.user!.id, req.params.paymentId as string);
+    return res.json({ message: 'Cobro eliminado.' });
+  }, 'Error al eliminar el cobro.')
 );
 
 export default router;

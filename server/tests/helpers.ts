@@ -10,6 +10,8 @@ export async function resetDb() {
   await prisma.reservation.deleteMany({});
   await prisma.turn.deleteMany({});
   await prisma.fixedBooking.deleteMany({});
+  await prisma.classEnrollment.deleteMany({});
+  await prisma.classSchedule.deleteMany({});
   await prisma.court.deleteMany({});
   await prisma.professorRequest.deleteMany({});
   await prisma.professorComplex.deleteMany({});

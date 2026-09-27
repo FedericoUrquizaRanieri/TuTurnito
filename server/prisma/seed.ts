@@ -29,6 +29,8 @@ async function main() {
   await prisma.reservation.deleteMany({});
   await prisma.turn.deleteMany({});
   await prisma.fixedBooking.deleteMany({});
+  await prisma.classEnrollment.deleteMany({});
+  await prisma.classSchedule.deleteMany({});
   await prisma.court.deleteMany({});
   await prisma.professorRequest.deleteMany({});
   await prisma.professorComplex.deleteMany({});
@@ -197,15 +199,6 @@ async function main() {
       },
       {
         payableType: 'STUDENT_CLASS',
-        payableId: student2.id,
-        amount: 8000,
-        status: 'PENDING',
-        date: todayStr,
-        recordedById: professor.id,
-        notes: 'Clase particular pendiente',
-      },
-      {
-        payableType: 'STUDENT_CLASS',
         payableId: student3.id,
         amount: 6000,
         status: 'PAID',
@@ -213,6 +206,34 @@ async function main() {
         recordedById: professor.id,
         notes: 'Clase grupal',
       },
+    ],
+  });
+
+  // Professor's class schedule: Cancha 3, Tue/Thu 10:00-12:00 (two 60' classes
+  // per day). Started a week ago so last week's classes already generated debt.
+  console.log('📚 Configurando horario de clases del profesor...');
+  const classCourt = complex1.courts[2];
+  const classDays = [2, 4];
+  const classSchedule = await prisma.classSchedule.create({
+    data: {
+      professorId: professor.id,
+      complexId: complex1.id,
+      courtId: classCourt.id,
+      daysOfWeek: classDays,
+      startTime: '10:00',
+      endTime: '12:00',
+      startDate: addDays(todayStr, -7),
+    },
+  });
+  await ensureTurnsForRange(complex1.id, todayStr, futureStr);
+
+  const weekAgo = addDays(todayStr, -7);
+  await prisma.classEnrollment.createMany({
+    data: [
+      { classScheduleId: classSchedule.id, dayOfWeek: 2, startTime: '10:00', studentId: student1.id, price: 8000, startDate: weekAgo },
+      { classScheduleId: classSchedule.id, dayOfWeek: 2, startTime: '10:00', studentId: student2.id, price: 8000, startDate: weekAgo },
+      { classScheduleId: classSchedule.id, dayOfWeek: 4, startTime: '10:00', studentId: student1.id, price: 8000, startDate: weekAgo },
+      { classScheduleId: classSchedule.id, dayOfWeek: 4, startTime: '11:00', studentId: student3.id, price: 15000, startDate: weekAgo },
     ],
   });
 
@@ -374,6 +395,41 @@ async function main() {
           },
         });
       }
+    }
+  }
+
+  // Last week's classes of the professor's schedule (they generate the
+  // students' debt shown in the professor's panel).
+  for (let back = 7; back >= 1; back--) {
+    const dateStr = addDays(todayStr, -back);
+    if (!classDays.includes(parseDateString(dateStr).dayOfWeek)) continue;
+    for (const startTime of ['10:00', '11:00']) {
+      const turn = await prisma.turn.update({
+        where: { courtId_date_startTime: { courtId: classCourt.id, date: dateStr, startTime } },
+        data: { state: 'OCCUPIED' },
+      });
+      const classRes = await prisma.reservation.create({
+        data: {
+          turnId: turn.id,
+          complexId: complex1.id,
+          userId: professor.id,
+          professorId: professor.id,
+          classScheduleId: classSchedule.id,
+          guestName: `Clase - ${professor.name}`,
+          guestPhone: professor.phone || '-',
+          type: 'CLASS',
+        },
+      });
+      await prisma.payment.create({
+        data: {
+          payableType: 'RESERVATION',
+          payableId: classRes.id,
+          amount: turn.price,
+          status: 'PAID',
+          date: dateStr,
+          recordedById: professor.id,
+        },
+      });
     }
   }
 

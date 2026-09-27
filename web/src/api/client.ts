@@ -12,9 +12,10 @@ import type {
   Payment,
   Student,
   StudentWithBalance,
+  ClassSchedule,
+  WeeklyClass,
+  StudentAccount,
   ProfessorRequest,
-  ProfessorPaymentView,
-  ProfessorHistory,
   UserRole,
 } from '../types';
 import type { User } from '../context/AuthContext';
@@ -205,9 +206,9 @@ export const api = {
     sendRequest: (complexId: string) =>
       request<{ message: string; request: ProfessorRequest }>('/professors/requests', { method: 'POST', body: JSON.stringify({ complexId }) }),
     getMyComplexes: () => request<{ approvedComplexes: Complex[]; requests: ProfessorRequest[] }>('/professors/my-complexes'),
-    getComplexRequests: (complexId: string) => request<{ requests: ProfessorRequest[] }>(`/complexes/${complexId}/professor-requests`),
+    getComplexRequests: (complexId: string) => request<{ requests: ProfessorRequest[] }>(`/professors/complexes/${complexId}/professor-requests`),
     resolveRequest: (complexId: string, requestId: string, status: 'APPROVED' | 'REJECTED') =>
-      request<{ message: string; request: ProfessorRequest }>(`/complexes/${complexId}/professor-requests/${requestId}`, {
+      request<{ message: string; request: ProfessorRequest }>(`/professors/complexes/${complexId}/professor-requests/${requestId}`, {
         method: 'PUT',
         body: JSON.stringify({ status }),
       }),
@@ -217,14 +218,37 @@ export const api = {
     updateStudent: (studentId: string, body: Partial<{ name: string; phone: string; email: string; notes: string }>) =>
       request<{ message: string; student: Student }>(`/professors/students/${studentId}`, { method: 'PUT', body: JSON.stringify(body) }),
     deleteStudent: (studentId: string) => request<{ message: string }>(`/professors/students/${studentId}`, { method: 'DELETE' }),
-    getPayments: (studentId?: string) => {
-      const qs = studentId ? `?studentId=${studentId}` : '';
-      return request<{ payments: ProfessorPaymentView[] }>(`/professors/payments${qs}`);
-    },
-    createPayment: (body: { studentId: string; amount: number; status?: 'PAID' | 'PENDING'; date?: string; notes?: string }) =>
-      request<{ message: string; payment: Payment }>('/professors/payments', { method: 'POST', body: JSON.stringify(body) }),
-    updatePayment: (paymentId: string, body: Partial<{ status: 'PAID' | 'PENDING'; amount: number }>) =>
-      request<{ message: string; payment: Payment }>(`/professors/payments/${paymentId}`, { method: 'PUT', body: JSON.stringify(body) }),
-    getHistory: () => request<ProfessorHistory>('/professors/history'),
+
+    // Class schedules: a court booked on several weekdays within a time window
+    getClassSchedules: () => request<{ schedules: ClassSchedule[] }>('/professors/class-schedules'),
+    createClassSchedule: (body: { complexId: string; courtId: string; daysOfWeek: number[]; startTime: string; endTime: string }) =>
+      request<{ message: string; schedule: ClassSchedule; skipped: { date: string; startTime: string }[] }>('/professors/class-schedules', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteClassSchedule: (scheduleId: string) =>
+      request<{ message: string }>(`/professors/class-schedules/${scheduleId}`, { method: 'DELETE' }),
+
+    // Weekly class grid, enrollments and student accounts
+    getWeeklyClasses: () => request<{ classes: WeeklyClass[]; students: StudentWithBalance[] }>('/professors/weekly-classes'),
+    addEnrollment: (body: {
+      classScheduleId: string;
+      dayOfWeek: number;
+      startTime: string;
+      price: number;
+      studentId?: string;
+      newStudent?: { name: string; phone: string };
+    }) => request<{ message: string }>('/professors/enrollments', { method: 'POST', body: JSON.stringify(body) }),
+    updateEnrollmentPrice: (enrollmentId: string, price: number) =>
+      request<{ message: string }>(`/professors/enrollments/${enrollmentId}`, { method: 'PUT', body: JSON.stringify({ price }) }),
+    removeEnrollment: (enrollmentId: string) =>
+      request<{ message: string }>(`/professors/enrollments/${enrollmentId}`, { method: 'DELETE' }),
+    getStudentAccount: (studentId: string) => request<StudentAccount>(`/professors/students/${studentId}/account`),
+    createStudentPayment: (studentId: string, body: { amount: number; date?: string; notes?: string }) =>
+      request<{ message: string; payment: Payment }>(`/professors/students/${studentId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    deleteStudentPayment: (paymentId: string) => request<{ message: string }>(`/professors/payments/${paymentId}`, { method: 'DELETE' }),
   },
 };

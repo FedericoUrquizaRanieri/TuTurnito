@@ -1,8 +1,7 @@
 import prisma from '../prisma';
-import { PaymentStatus, ProfessorRequestStatus } from '@prisma/client';
+import { ProfessorRequestStatus } from '@prisma/client';
 import { HttpError } from '../middleware/HttpError';
-import { formatDate } from './schedule.service';
-import { getPaymentsByPayableIds, summarizeByStatus } from './payment.service';
+import { computeBalances, EMPTY_BALANCE } from './classSchedule.service';
 
 // ── Onboarding: professor <-> complex linking ──────────────────────────────
 
@@ -104,15 +103,11 @@ function assertOwnsStudent<T extends { professorId: string } | null>(
   }
 }
 
+/** Active students with their balance (paid − owed for the classes they took). */
 export async function listStudentsWithBalance(professorId: string) {
   const students = await prisma.student.findMany({ where: { professorId, active: true }, orderBy: { name: 'asc' } });
-  const payments = await getPaymentsByPayableIds('STUDENT_CLASS', students.map((s) => s.id));
-
-  return students.map((student) => {
-    const studentPayments = payments.filter((p) => p.payableId === student.id);
-    const { totalPaid, totalPending } = summarizeByStatus(studentPayments);
-    return { ...student, totalPaid, totalPending, paymentCount: studentPayments.length };
-  });
+  const { balances } = await computeBalances(professorId);
+  return students.map((student) => ({ ...student, balance: balances.get(student.id) ?? EMPTY_BALANCE }));
 }
 
 export async function createStudent(professorId: string, input: StudentInput) {
@@ -142,108 +137,10 @@ export async function updateStudent(studentId: string, professorId: string, inpu
   });
 }
 
-/** Soft delete — keeps the student's payment history intact. */
+/** Soft delete — keeps the student's payments and class charges intact. */
 export async function deleteStudent(studentId: string, professorId: string): Promise<void> {
   const student = await prisma.student.findUnique({ where: { id: studentId } });
   assertOwnsStudent(student, professorId);
 
   await prisma.student.update({ where: { id: studentId }, data: { active: false } });
-}
-
-// ── Payments & history ─────────────────────────────────────────────────
-
-export async function listProfessorPayments(professorId: string, studentId?: string) {
-  const students = await prisma.student.findMany({ where: { professorId } });
-  const studentMap = new Map(students.map((s) => [s.id, s]));
-  const studentIds = Array.from(studentMap.keys());
-
-  const payments = await prisma.payment.findMany({
-    where: {
-      payableType: 'STUDENT_CLASS',
-      payableId: studentId ? studentId : { in: studentIds },
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  return payments.map((p) => ({
-    ...p,
-    studentName: studentMap.get(p.payableId)?.name || 'Alumno eliminado',
-    studentPhone: studentMap.get(p.payableId)?.phone,
-  }));
-}
-
-export interface CreateProfessorPaymentInput {
-  studentId: string;
-  amount: number;
-  status: PaymentStatus;
-  date?: string;
-  notes?: string;
-}
-
-export async function createProfessorPayment(professorId: string, input: CreateProfessorPaymentInput) {
-  const student = await prisma.student.findUnique({ where: { id: input.studentId } });
-  assertOwnsStudent(student, professorId);
-
-  const paymentDate = input.date && input.date.trim() ? input.date.trim() : formatDate(new Date());
-
-  return prisma.payment.create({
-    data: {
-      payableType: 'STUDENT_CLASS',
-      payableId: input.studentId,
-      amount: input.amount,
-      status: input.status,
-      date: paymentDate,
-      recordedById: professorId,
-      notes: input.notes?.trim() || `Cobro de clase para ${student.name}`,
-    },
-  });
-}
-
-export async function updateProfessorPayment(
-  paymentId: string,
-  professorId: string,
-  input: { status?: PaymentStatus; amount?: number }
-) {
-  const payment = await prisma.payment.findUnique({ where: { id: paymentId } });
-  if (!payment || payment.recordedById !== professorId) {
-    throw new HttpError(404, 'Cobro no encontrado.');
-  }
-
-  return prisma.payment.update({
-    where: { id: paymentId },
-    data: {
-      ...(input.status ? { status: input.status } : {}),
-      ...(typeof input.amount === 'number' ? { amount: input.amount } : {}),
-    },
-  });
-}
-
-export async function getProfessorHistory(professorId: string) {
-  const todayStr = formatDate(new Date());
-
-  const classReservations = await prisma.reservation.findMany({
-    where: { professorId, type: 'CLASS' },
-    include: { complex: true, turn: { include: { court: true } } },
-    orderBy: [{ turn: { date: 'desc' } }, { turn: { startTime: 'desc' } }],
-  });
-
-  const students = await prisma.student.findMany({ where: { professorId } });
-  const payments = await getPaymentsByPayableIds('STUDENT_CLASS', students.map((s) => s.id));
-  const { totalPaid: totalCollected, totalPending } = summarizeByStatus(payments);
-
-  const upcomingClasses = classReservations.filter((r) => r.turn.date >= todayStr);
-  const pastClasses = classReservations.filter((r) => r.turn.date < todayStr);
-
-  return {
-    summary: {
-      totalClasses: classReservations.length,
-      upcomingClassesCount: upcomingClasses.length,
-      pastClassesCount: pastClasses.length,
-      studentsCount: students.filter((s) => s.active).length,
-      totalCollected,
-      totalPending,
-    },
-    upcomingClasses,
-    pastClasses,
-  };
 }

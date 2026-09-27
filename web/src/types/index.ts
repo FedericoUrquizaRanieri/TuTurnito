@@ -84,6 +84,7 @@ export interface TurnReservationSummary {
   type: ReservationType;
   notes?: string | null;
   fixedBookingId?: string | null;
+  classScheduleId?: string | null;
   user?: { id: string; name: string; email: string; phone: string | null } | null;
   professor?: { id: string; name: string; email: string } | null;
 }
@@ -147,12 +148,6 @@ export interface Payment {
   updatedAt: string;
 }
 
-/** GET /api/professors/payments — a Payment joined with its student's name/phone. */
-export interface ProfessorPaymentView extends Payment {
-  studentName: string;
-  studentPhone?: string;
-}
-
 /** GET /api/complexes/:id/reservations — the owner's reservations+payments view. */
 export interface OwnerReservationView {
   id: string;
@@ -204,11 +199,61 @@ export interface Student {
   updatedAt: string;
 }
 
-/** GET /api/professors/students — a Student with its running payment balance. */
+/** A student's account with the professor: paid − owed for the classes already given. */
+export interface StudentBalance {
+  paid: number;
+  owed: number;
+  balance: number;
+  classesCharged: number;
+}
+
+/** GET /api/professors/students — a Student with its balance. */
 export interface StudentWithBalance extends Student {
-  totalPaid: number;
-  totalPending: number;
-  paymentCount: number;
+  balance: StudentBalance;
+}
+
+/** A professor's recurring court booking: one court, several weekdays, a time window. */
+export interface ClassSchedule {
+  id: string;
+  professorId: string;
+  complexId: string;
+  courtId: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+  startDate: string;
+  court: { id: string; name: string };
+  complex: { id: string; name: string; slug: string };
+}
+
+export interface ClassStudent {
+  enrollmentId: string;
+  studentId: string;
+  name: string;
+  phone: string;
+  /** What this student pays per class. */
+  price: number;
+  balance: StudentBalance;
+}
+
+/** GET /api/professors/weekly-classes — one class of the weekly grid (schedule × weekday × turn). */
+export interface WeeklyClass {
+  key: string;
+  classScheduleId: string;
+  dayOfWeek: number;
+  startTime: string;
+  endTime: string;
+  court: { id: string; name: string };
+  complex: { id: string; name: string; slug: string };
+  students: ClassStudent[];
+}
+
+/** GET /api/professors/students/:id/account */
+export interface StudentAccount {
+  student: Student;
+  balance: StudentBalance;
+  charges: { enrollmentId: string; date: string; startTime: string; endTime: string; price: number }[];
+  payments: Payment[];
 }
 
 export interface ProfessorRequest {
@@ -220,32 +265,4 @@ export interface ProfessorRequest {
   resolvedAt: string | null;
   complex?: Complex;
   professor?: { id: string; name: string; email: string; phone: string | null };
-}
-
-export interface ClassReservation {
-  id: string;
-  complexId: string;
-  turnId: string;
-  guestName: string;
-  guestPhone: string;
-  type: 'CLASS';
-  complex: Complex;
-  turn: Turn;
-  notes: string | null;
-  createdAt: string;
-}
-
-export interface ProfessorHistorySummary {
-  totalClasses: number;
-  upcomingClassesCount: number;
-  pastClassesCount: number;
-  studentsCount: number;
-  totalCollected: number;
-  totalPending: number;
-}
-
-export interface ProfessorHistory {
-  summary: ProfessorHistorySummary;
-  upcomingClasses: ClassReservation[];
-  pastClasses: ClassReservation[];
 }

@@ -133,10 +133,11 @@ export async function cancelReservation(reservationId: string, requester: UserPa
 
   assertCanCancelReservation(reservation, requester);
 
-  // Cancelling one occurrence of a fixed booking flags the turn so the
-  // generator doesn't book that same week again.
+  // Cancelling one occurrence of a fixed booking or a professor's class
+  // schedule flags the turn so the generator doesn't book that date again.
+  const isRecurring = Boolean(reservation.fixedBookingId || reservation.classScheduleId);
   await prisma.$transaction((tx) =>
-    releaseReservationTx(tx, reservation, reservation.fixedBookingId ? { manualOverride: true } : {})
+    releaseReservationTx(tx, reservation, isRecurring ? { manualOverride: true } : {})
   );
 }
 

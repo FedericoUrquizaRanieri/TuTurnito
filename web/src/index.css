@@ -942,3 +942,118 @@ button {
   font-size: 0.85rem;
 }
 
+/* ---------------------------------------------------------------
+   Professor weekly class grid: days x start times, each class a
+   card listing its students (up to 4). Students with debt get a
+   red dot so the professor spots them at a glance.
+   --------------------------------------------------------------- */
+.pg-table td {
+  min-width: 150px;
+}
+
+.pg-class {
+  background: rgba(43, 179, 163, 0.1);
+  border-left: 3px solid var(--accent-cyan);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.55rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pg-class + .pg-class {
+  margin-top: 0.35rem;
+}
+
+.pg-class-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 700;
+  font-size: 0.78rem;
+}
+
+.pg-count {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.pg-class-sub {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+.pg-students {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pg-student,
+.pg-add {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  text-align: left;
+  color: var(--text-main);
+  background: var(--bg-surface);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.pg-student:hover,
+.pg-add:hover {
+  border-color: var(--accent-cyan);
+}
+
+.pg-student:focus-visible,
+.pg-add:focus-visible {
+  outline: 2px solid var(--border-active);
+  outline-offset: 1px;
+}
+
+.pg-add {
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px dashed var(--border-subtle);
+}
+
+.pg-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-available);
+  flex-shrink: 0;
+}
+
+.pg-student.owes .pg-dot,
+.pg-dot.owes-dot {
+  background: var(--status-blocked);
+}
+
+.pg-kpi {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.pg-kpi span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.pg-kpi strong {
+  font-size: 1.05rem;
+  font-weight: 800;
+}

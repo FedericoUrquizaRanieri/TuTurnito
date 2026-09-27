@@ -10,6 +10,7 @@ export interface BookTurnInput {
   professorId?: string | null;
   notes?: string | null;
   fixedBookingId?: string | null;
+  classScheduleId?: string | null;
   recordedById: string;
   paymentNote: string;
 }
@@ -19,8 +20,8 @@ export interface BookTurnInput {
  * creates the Reservation and its initial PENDING Payment.
  *
  * Shared by player/owner bookings (reservation.service.ts) and by the fixed
- * booking generator (schedule.service.ts), so it lives in its own module
- * instead of creating a circular import between those two services.
+ * booking / class schedule generators (schedule.service.ts), so it lives in
+ * its own module instead of creating a circular import between them.
  *
  * The state flip is a guarded `updateMany` (only AVAILABLE turns): under
  * Postgres READ COMMITTED a concurrent writer on the same row waits and then
@@ -56,6 +57,7 @@ export async function bookTurnTx(
       professorId: input.professorId ?? null,
       notes: input.notes?.trim() || null,
       fixedBookingId: input.fixedBookingId ?? null,
+      classScheduleId: input.classScheduleId ?? null,
     },
   });
 

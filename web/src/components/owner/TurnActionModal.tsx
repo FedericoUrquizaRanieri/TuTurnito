@@ -88,6 +88,8 @@ export const TurnActionModal: React.FC<TurnActionModalProps> = ({ complexId, tur
     if (!reservation) return;
     const msg = reservation.fixedBookingId
       ? '¿Cancelar esta reserva? Es un turno fijo: solo se libera esta fecha, las demás semanas siguen reservadas.'
+      : reservation.classScheduleId
+      ? '¿Cancelar esta clase? Es parte del horario semanal del profesor: solo se libera esta fecha y no se les cobra a sus alumnos.'
       : '¿Cancelar esta reserva y liberar el turno?';
     if (!confirm(msg)) return;
     run(() => api.reservations.cancel(reservation.id));
