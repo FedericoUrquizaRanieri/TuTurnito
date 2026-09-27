@@ -243,6 +243,10 @@ export const api = {
       request<{ message: string }>(`/professors/enrollments/${enrollmentId}`, { method: 'PUT', body: JSON.stringify({ price }) }),
     removeEnrollment: (enrollmentId: string) =>
       request<{ message: string }>(`/professors/enrollments/${enrollmentId}`, { method: 'DELETE' }),
+    markAbsent: (enrollmentId: string, date: string) =>
+      request<{ message: string }>(`/professors/enrollments/${enrollmentId}/absences`, { method: 'POST', body: JSON.stringify({ date }) }),
+    unmarkAbsent: (enrollmentId: string, date: string) =>
+      request<{ message: string }>(`/professors/enrollments/${enrollmentId}/absences/${date}`, { method: 'DELETE' }),
     getStudentAccount: (studentId: string) => request<StudentAccount>(`/professors/students/${studentId}/account`),
     createStudentPayment: (studentId: string, body: { amount: number; date?: string; notes?: string }) =>
       request<{ message: string; payment: Payment }>(`/professors/students/${studentId}/payments`, {

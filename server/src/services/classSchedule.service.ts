@@ -55,6 +55,10 @@ export const enrollmentUpdateSchema = z.object({
   price: z.number().nonnegative('El valor no puede ser negativo'),
 });
 
+export const absenceSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe tener formato YYYY-MM-DD'),
+});
+
 export const studentPaymentSchema = z.object({
   amount: z.number().positive('El monto debe ser mayor a 0'),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'La fecha debe tener formato YYYY-MM-DD').optional(),
@@ -224,12 +228,14 @@ export interface StudentBalance {
 /**
  * Balance of each of the professor's students: every class they're enrolled
  * in that has already started adds its price as debt (only classes that
- * actually took place — a cancelled occurrence has no reservation), and
- * every payment the professor records subtracts it.
+ * actually took place — a cancelled occurrence has no reservation — and
+ * that the student didn't miss), and every payment the professor records
+ * subtracts it.
  */
 export async function computeBalances(professorId: string, studentIds?: string[]) {
   const enrollments = await prisma.classEnrollment.findMany({
     where: { student: { professorId }, ...(studentIds ? { studentId: { in: studentIds } } : {}) },
+    include: { absences: true },
   });
   const scheduleIds = Array.from(new Set(enrollments.map((e) => e.classScheduleId)));
 
@@ -243,8 +249,11 @@ export async function computeBalances(professorId: string, studentIds?: string[]
   const now = nowParts();
   const given = reservations.filter((r) => hasStarted(r.turn.date, r.turn.startTime, now));
 
-  const charges: { studentId: string; enrollmentId: string; date: string; startTime: string; endTime: string; price: number }[] = [];
+  type Charge = { studentId: string; enrollmentId: string; date: string; startTime: string; endTime: string; price: number };
+  const charges: Charge[] = [];
+  const absentClasses: Charge[] = [];
   for (const e of enrollments) {
+    const absentDates = new Set(e.absences.map((a) => a.date));
     for (const r of given) {
       if (
         r.classScheduleId === e.classScheduleId &&
@@ -253,10 +262,17 @@ export async function computeBalances(professorId: string, studentIds?: string[]
         r.turn.date >= e.startDate &&
         (!e.endDate || r.turn.date < e.endDate)
       ) {
-        charges.push({ studentId: e.studentId, enrollmentId: e.id, date: r.turn.date, startTime: r.turn.startTime, endTime: r.turn.endTime, price: e.price });
+        const charge = { studentId: e.studentId, enrollmentId: e.id, date: r.turn.date, startTime: r.turn.startTime, endTime: r.turn.endTime, price: e.price };
+        (absentDates.has(r.turn.date) ? absentClasses : charges).push(charge);
       }
     }
   }
+  // Absences marked ahead of time (the student let the professor know).
+  const upcomingAbsences = enrollments.flatMap((e) =>
+    e.absences
+      .filter((a) => !hasStarted(a.date, e.startTime, now))
+      .map((a) => ({ enrollmentId: e.id, date: a.date, startTime: e.startTime }))
+  );
 
   const ids = studentIds ?? Array.from(new Set(enrollments.map((e) => e.studentId)));
   const payments = await prisma.payment.findMany({
@@ -277,7 +293,7 @@ export async function computeBalances(professorId: string, studentIds?: string[]
   for (const p of payments) get(p.payableId).paid += p.amount;
   for (const b of balances.values()) b.balance = b.paid - b.owed;
 
-  return { balances, charges, payments };
+  return { balances, charges, absentClasses, upcomingAbsences, payments };
 }
 
 export const EMPTY_BALANCE: StudentBalance = { paid: 0, owed: 0, balance: 0, classesCharged: 0 };
@@ -412,14 +428,54 @@ export async function removeEnrollment(professorId: string, enrollmentId: string
 
 export async function getStudentAccount(professorId: string, studentId: string) {
   const student = await getOwnedStudent(professorId, studentId);
-  const { balances, charges, payments } = await computeBalances(professorId, [studentId]);
+  const { balances, charges, absentClasses, upcomingAbsences, payments } = await computeBalances(professorId, [studentId]);
+  const newestFirst = <T extends { date: string; startTime: string }>(a: T, b: T) =>
+    a.date === b.date ? b.startTime.localeCompare(a.startTime) : b.date.localeCompare(a.date);
 
   return {
     student,
     balance: balances.get(studentId) ?? EMPTY_BALANCE,
-    charges: charges.sort((a, b) => (a.date === b.date ? b.startTime.localeCompare(a.startTime) : b.date.localeCompare(a.date))),
+    charges: charges.sort(newestFirst),
+    absences: [
+      ...absentClasses.map((c) => ({ enrollmentId: c.enrollmentId, date: c.date, startTime: c.startTime, price: c.price })),
+      ...upcomingAbsences.map((a) => ({ ...a, price: 0 })),
+    ].sort(newestFirst),
     payments,
   };
+}
+
+/**
+ * Marks the student absent from one date of their class, so that class isn't
+ * charged. Works for a class already given or ahead of time (when the
+ * student lets the professor know), but only on a date the student is
+ * actually enrolled for.
+ */
+export async function markAbsent(professorId: string, enrollmentId: string, date: string) {
+  const enrollment = await prisma.classEnrollment.findUnique({ where: { id: enrollmentId }, include: { classSchedule: true } });
+  if (!enrollment || enrollment.classSchedule.professorId !== professorId) {
+    throw new HttpError(404, 'Inscripción no encontrada.');
+  }
+  if (parseDateString(date).dayOfWeek !== enrollment.dayOfWeek) {
+    throw new HttpError(400, 'Esa fecha no corresponde al día de la clase.');
+  }
+  if (date < enrollment.startDate || (enrollment.endDate && date >= enrollment.endDate)) {
+    throw new HttpError(400, 'El alumno no estaba inscripto en la clase de esa fecha.');
+  }
+
+  return prisma.classAbsence.upsert({
+    where: { enrollmentId_date: { enrollmentId, date } },
+    create: { enrollmentId, date },
+    update: {},
+  });
+}
+
+/** Undoes an absence: the class is charged again once it has started. */
+export async function unmarkAbsent(professorId: string, enrollmentId: string, date: string) {
+  const enrollment = await prisma.classEnrollment.findUnique({ where: { id: enrollmentId }, include: { classSchedule: true } });
+  if (!enrollment || enrollment.classSchedule.professorId !== professorId) {
+    throw new HttpError(404, 'Inscripción no encontrada.');
+  }
+  await prisma.classAbsence.deleteMany({ where: { enrollmentId, date } });
 }
 
 export async function createStudentPayment(professorId: string, studentId: string, input: StudentPaymentInput) {

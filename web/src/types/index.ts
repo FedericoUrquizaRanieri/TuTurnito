@@ -253,6 +253,8 @@ export interface StudentAccount {
   student: Student;
   balance: StudentBalance;
   charges: { enrollmentId: string; date: string; startTime: string; endTime: string; price: number }[];
+  /** Classes the student missed (not charged), including ones marked ahead of time. */
+  absences: { enrollmentId: string; date: string; startTime: string; price: number }[];
   payments: Payment[];
 }
 

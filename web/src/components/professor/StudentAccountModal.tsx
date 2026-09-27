@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { X, Phone, Trash2, UserMinus, Plus } from 'lucide-react';
+import { X, Phone, Trash2, UserMinus, Plus, UserX, Undo2 } from 'lucide-react';
 import { api } from '../../api/client';
 import { Banner } from '../Banner';
-import { DAY_NAMES, shortDateLabel, todayStr } from '../../lib/dates';
+import { DAY_NAMES, addDays, parseDate, shortDateLabel, todayStr } from '../../lib/dates';
 import type { ClassStudent, StudentAccount, WeeklyClass } from '../../types';
 
 interface StudentAccountModalProps {
@@ -13,6 +13,18 @@ interface StudentAccountModalProps {
 }
 
 const money = (n: number) => `$${Math.abs(n).toLocaleString('es-AR')}`;
+
+/** Date of this class's next occurrence that hasn't started yet (today if it's later today). */
+function nextClassDate(dayOfWeek: number, startTime: string): string {
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const today = todayStr();
+  for (let i = 0; i < 8; i++) {
+    const date = addDays(today, i);
+    if (parseDate(date).getDay() === dayOfWeek && (i > 0 || startTime > time)) return date;
+  }
+  return addDays(today, 7);
+}
 
 /**
  * A student inside one class: what their turn costs in this class, their
@@ -89,6 +101,16 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
     run(() => api.professors.removeEnrollment(student.enrollmentId), onClose);
   };
 
+  const toggleAbsent = (enrollmentId: string, date: string, absent: boolean) =>
+    run(() => (absent ? api.professors.unmarkAbsent(enrollmentId, date) : api.professors.markAbsent(enrollmentId, date)));
+
+  // Upcoming class of THIS enrollment, so the professor can mark ahead of
+  // time that the student won't come.
+  const nextDate = nextClassDate(cls.dayOfWeek, cls.startTime);
+  const nextIsAbsent = Boolean(
+    account?.absences.some((a) => a.enrollmentId === student.enrollmentId && a.date === nextDate)
+  );
+
   const b = account?.balance;
   const balanceColor = !b ? 'var(--text-main)' : b.balance < 0 ? 'var(--status-blocked)' : 'var(--status-available)';
 
@@ -163,19 +185,40 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
           </button>
         </form>
 
-        {/* Movements */}
-        {account && (account.payments.length > 0 || account.charges.length > 0) && (
-          <div style={{ maxHeight: '190px', overflowY: 'auto', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+        {/* Next class: mark ahead of time that the student won't come */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.75rem', marginBottom: '1.1rem', fontSize: '0.85rem' }}>
+          <span style={{ color: 'var(--text-muted)' }}>
+            Próxima clase: <strong style={{ color: 'var(--text-main)' }}>{shortDateLabel(nextDate)} {cls.startTime}</strong>
+            {nextIsAbsent && <span className="badge badge-blocked" style={{ marginLeft: '0.4rem', fontSize: '0.65rem' }}>AUSENTE</span>}
+          </span>
+          <button
+            className="btn btn-secondary btn-sm"
+            disabled={busy || !account}
+            onClick={() => toggleAbsent(student.enrollmentId, nextDate, nextIsAbsent)}
+            style={{ whiteSpace: 'nowrap' }}
+          >
+            {nextIsAbsent ? <Undo2 size={13} /> : <UserX size={13} />}
+            <span>{nextIsAbsent ? 'Va a venir' : 'Avisó que falta'}</span>
+          </button>
+        </div>
+
+        {/* Movements: payments, charged classes (can be marked absent) and absences (can be undone) */}
+        {account && (account.payments.length > 0 || account.charges.length > 0 || account.absences.length > 0) && (
+          <div style={{ maxHeight: '220px', overflowY: 'auto', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
             {[
-              ...account.payments.map((p) => ({ kind: 'pay' as const, key: p.id, date: p.date, label: p.notes || 'Cobro', amount: p.amount, id: p.id })),
-              ...account.charges.map((c, i) => ({ kind: 'charge' as const, key: `c${i}`, date: c.date, label: `Clase ${c.startTime}`, amount: c.price, id: '' })),
+              ...account.payments.map((p) => ({ kind: 'pay' as const, key: p.id, date: p.date, label: p.notes || 'Cobro', amount: p.amount, id: p.id, enrollmentId: '' })),
+              ...account.charges.map((c) => ({ kind: 'charge' as const, key: `c${c.enrollmentId}${c.date}`, date: c.date, label: `Clase ${c.startTime}`, amount: c.price, id: '', enrollmentId: c.enrollmentId })),
+              ...account.absences.map((a) => ({ kind: 'absent' as const, key: `a${a.enrollmentId}${a.date}`, date: a.date, label: `Clase ${a.startTime} · ausente`, amount: 0, id: '', enrollmentId: a.enrollmentId })),
             ]
               .sort((x, y) => y.date.localeCompare(x.date))
               .map((m) => (
-                <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', padding: '0.35rem 0.5rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)' }}>
+                <div key={m.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', fontSize: '0.8rem', padding: '0.35rem 0.5rem', background: 'var(--bg-surface)', borderRadius: 'var(--radius-sm)', opacity: m.kind === 'absent' ? 0.75 : 1 }}>
                   <span style={{ color: 'var(--text-muted)' }}>{shortDateLabel(m.date)} · {m.label}</span>
                   <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, color: m.kind === 'pay' ? 'var(--status-available)' : 'var(--text-main)' }}>
-                    {m.kind === 'pay' ? '+' : '−'}{money(m.amount)}
+                    {m.kind === 'pay' && <>+{money(m.amount)}</>}
+                    {m.kind === 'charge' && <>−{money(m.amount)}</>}
+                    {m.kind === 'absent' && <span style={{ fontWeight: 600, color: 'var(--text-subtle)' }}>no se cobra</span>}
+
                     {m.kind === 'pay' && (
                       <button
                         onClick={() => confirm('¿Eliminar este cobro?') && run(() => api.professors.deleteStudentPayment(m.id))}
@@ -185,6 +228,29 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
                         style={{ color: 'var(--text-subtle)', padding: '0.1rem' }}
                       >
                         <Trash2 size={12} />
+                      </button>
+                    )}
+                    {m.kind === 'charge' && (
+                      <button
+                        onClick={() => toggleAbsent(m.enrollmentId, m.date, false)}
+                        disabled={busy}
+                        aria-label={`Marcar ausente el ${shortDateLabel(m.date)}`}
+                        title="Marcar ausente: esta clase no se cobra"
+                        className="badge badge-blocked"
+                        style={{ cursor: 'pointer', fontSize: '0.62rem', padding: '0.1rem 0.35rem' }}
+                      >
+                        Ausente
+                      </button>
+                    )}
+                    {m.kind === 'absent' && (
+                      <button
+                        onClick={() => toggleAbsent(m.enrollmentId, m.date, true)}
+                        disabled={busy}
+                        aria-label={`Deshacer ausencia del ${shortDateLabel(m.date)}`}
+                        title="Deshacer ausencia"
+                        style={{ color: 'var(--text-subtle)', padding: '0.1rem' }}
+                      >
+                        <Undo2 size={12} />
                       </button>
                     )}
                   </span>

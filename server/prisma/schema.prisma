@@ -254,7 +254,21 @@ model ClassEnrollment {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
+  absences ClassAbsence[]
+
   @@index([classScheduleId, dayOfWeek, startTime])
+}
+
+// El alumno faltó (o avisó que va a faltar) a la clase de esa fecha: esa
+// clase no se le cobra.
+model ClassAbsence {
+  id           String          @id @default(uuid())
+  enrollmentId String
+  enrollment   ClassEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  date         String          // "YYYY-MM-DD"
+  createdAt    DateTime        @default(now())
+
+  @@unique([enrollmentId, date])
 }
 
 model Student {

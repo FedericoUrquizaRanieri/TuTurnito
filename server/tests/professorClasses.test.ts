@@ -163,6 +163,27 @@ describe('professor class schedules', () => {
     expect(account.body.balance).toEqual({ paid: 0, owed: 7000, balance: -7000, classesCharged: 1 });
     expect(account.body.charges[0]).toMatchObject({ date: pastDate, startTime: '15:00', price: 7000 });
 
+    // Marked absent: that class isn't charged; undoing it charges it again.
+    const absent = await professor.post(`/api/professors/enrollments/${enrollmentId}/absences`).send({ date: pastDate });
+    expect(absent.status).toBe(201);
+    const whileAbsent = await professor.get(`/api/professors/students/${studentId}/account`);
+    expect(whileAbsent.body.balance).toMatchObject({ owed: 0, classesCharged: 0 });
+    expect(whileAbsent.body.absences[0]).toMatchObject({ date: pastDate, startTime: '15:00', price: 7000 });
+
+    expect((await professor.post(`/api/professors/enrollments/${enrollmentId}/absences`).send({ date: dateFromToday(-5) })).status).toBe(400);
+
+    expect((await professor.delete(`/api/professors/enrollments/${enrollmentId}/absences/${pastDate}`)).status).toBe(200);
+    const backToCharged = await professor.get(`/api/professors/students/${studentId}/account`);
+    expect(backToCharged.body.balance.owed).toBe(7000);
+
+    // Ahead of time (the student let the professor know): listed, charges nothing.
+    const nextDate = dateFromToday(1);
+    expect((await professor.post(`/api/professors/enrollments/${enrollmentId}/absences`).send({ date: nextDate })).status).toBe(201);
+    const withUpcoming = await professor.get(`/api/professors/students/${studentId}/account`);
+    expect(withUpcoming.body.absences.map((a: any) => a.date)).toContain(nextDate);
+    expect(withUpcoming.body.balance.owed).toBe(7000);
+    await professor.delete(`/api/professors/enrollments/${enrollmentId}/absences/${nextDate}`);
+
     const pay = await professor.post(`/api/professors/students/${studentId}/payments`).send({ amount: 5000 });
     expect(pay.status).toBe(201);
     const afterPay = await professor.get(`/api/professors/students/${studentId}/account`);

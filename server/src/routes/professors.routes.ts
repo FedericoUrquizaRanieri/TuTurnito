@@ -24,6 +24,9 @@ import {
   getStudentAccount,
   createStudentPayment,
   deleteStudentPayment,
+  markAbsent,
+  unmarkAbsent,
+  absenceSchema,
   classScheduleCreateSchema,
   enrollmentCreateSchema,
   enrollmentUpdateSchema,
@@ -223,6 +226,27 @@ router.delete(
     await removeEnrollment(req.user!.id, req.params.enrollmentId as string);
     return res.json({ message: 'Alumno quitado de la clase.' });
   }, 'Error al quitar el alumno de la clase.')
+);
+
+// POST /api/professors/enrollments/:enrollmentId/absences (Student missed / will miss that date: not charged)
+router.post(
+  '/enrollments/:enrollmentId/absences',
+  ...professorOnly,
+  validate(absenceSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const absence = await markAbsent(req.user!.id, req.params.enrollmentId as string, req.body.date);
+    return res.status(201).json({ message: 'Ausencia registrada: esa clase no se cobra.', absence });
+  }, 'Error al registrar la ausencia.')
+);
+
+// DELETE /api/professors/enrollments/:enrollmentId/absences/:date (Undo an absence)
+router.delete(
+  '/enrollments/:enrollmentId/absences/:date',
+  ...professorOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    await unmarkAbsent(req.user!.id, req.params.enrollmentId as string, req.params.date as string);
+    return res.json({ message: 'Ausencia eliminada.' });
+  }, 'Error al eliminar la ausencia.')
 );
 
 // GET /api/professors/students/:studentId/account (Balance, charged classes and payments)
