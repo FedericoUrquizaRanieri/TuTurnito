@@ -4,6 +4,8 @@ import { api } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { OpenMatchFields } from './OpenMatchFields';
+import { WhatsappButton } from '../WhatsappButton';
+import { shortDateLabel } from '../../lib/dates';
 import type { MyReservation, OpenMatchInput } from '../../types';
 
 interface MyOpenMatchPanelProps {
@@ -53,6 +55,7 @@ export const MyOpenMatchPanel: React.FC<MyOpenMatchPanelProps> = ({ reservation:
   };
 
   const payload = () => ({ ...form, notes: form.notes?.trim() || null });
+  const matchText = `el partido del ${shortDateLabel(r.date)} a las ${r.startTime} hs en ${r.complexName}`;
 
   if (!m) {
     return editing ? (
@@ -130,7 +133,7 @@ export const MyOpenMatchPanel: React.FC<MyOpenMatchPanelProps> = ({ reservation:
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.85rem' }}>
         {!isOrganizer && (
-          <PlayerRow name={`${m.organizer.name} (organiza)`} phone={m.organizer.phone} />
+          <PlayerRow name={`${m.organizer.name} (organiza)`} phone={m.organizer.phone} message={`Hola! Me sumé a ${matchText}.`} />
         )}
         {m.players.length === 0 ? (
           <span style={{ color: 'var(--text-muted)' }}>Todavía no se sumó nadie. Te avisamos por email.</span>
@@ -140,6 +143,7 @@ export const MyOpenMatchPanel: React.FC<MyOpenMatchPanelProps> = ({ reservation:
               key={p.userId}
               name={p.userId === user?.id ? `${p.name} (vos)` : p.name}
               phone={p.userId === user?.id ? null : p.phone}
+              message={`Hola! Nos vemos en ${matchText}.`}
               onRemove={
                 isOrganizer
                   ? () => {
@@ -178,9 +182,10 @@ export const MyOpenMatchPanel: React.FC<MyOpenMatchPanelProps> = ({ reservation:
   );
 };
 
-const PlayerRow: React.FC<{ name: string; phone: string | null; onRemove?: () => void; busy?: boolean }> = ({
+const PlayerRow: React.FC<{ name: string; phone: string | null; message: string; onRemove?: () => void; busy?: boolean }> = ({
   name,
   phone,
+  message,
   onRemove,
   busy,
 }) => (
@@ -192,6 +197,7 @@ const PlayerRow: React.FC<{ name: string; phone: string | null; onRemove?: () =>
           <Phone size={12} /> {phone}
         </a>
       )}
+      {phone && <WhatsappButton phone={phone} text={message} />}
       {onRemove && (
         <button className="btn btn-danger btn-sm" onClick={onRemove} disabled={busy} style={{ padding: '0.25rem 0.5rem' }} title="Sacar del partido">
           <UserMinus size={13} />

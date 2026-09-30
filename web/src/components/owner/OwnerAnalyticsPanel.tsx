@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { StatCard } from '../StatCard';
 import { EmptyState } from '../EmptyState';
 import { Heatmap } from '../analytics/Heatmap';
+import { WhatsappButton } from '../WhatsappButton';
 import {
   SERIES,
   money,
@@ -162,6 +163,7 @@ export const OwnerAnalyticsPanel: React.FC<{ complexId: string }> = ({ complexId
                         <th className="num">Reservas</th>
                         <th className="num">Pagó</th>
                         <th className="num">Debe</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
@@ -174,6 +176,9 @@ export const OwnerAnalyticsPanel: React.FC<{ complexId: string }> = ({ complexId
                           <td className="num">{c.reservations}</td>
                           <td className="num">{money(c.spent)}</td>
                           <td className="num" style={{ color: c.owed > 0 ? 'var(--accent-secondary)' : undefined }}>{c.owed > 0 ? money(c.owed) : '—'}</td>
+                          <td className="num">
+                            <WhatsappButton phone={c.phone} title={`WhatsApp a ${c.name}`} />
+                          </td>
                         </tr>
                       ))}
                     </tbody>

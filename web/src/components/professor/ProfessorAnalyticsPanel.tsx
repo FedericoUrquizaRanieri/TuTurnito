@@ -5,6 +5,7 @@ import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
 import { StatCard } from '../StatCard';
 import { EmptyState } from '../EmptyState';
+import { WhatsappButton } from '../WhatsappButton';
 import { SERIES, money, moneyShort, percent, RangePicker, RangeKey, rangeFor, ChartCard, SeriesLegend, makeTooltip, AXIS_PROPS, GRID_PROPS } from '../analytics/charts';
 import { shortDateLabel } from '../../lib/dates';
 import type { ProfessorAnalytics } from '../../types';
@@ -126,6 +127,13 @@ export const ProfessorAnalyticsPanel: React.FC = () => {
                           {d.phone && <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>{d.phone}</div>}
                         </td>
                         <td className="num" style={{ color: 'var(--accent-secondary)', fontWeight: 700 }}>{money(d.owes)}</td>
+                        <td className="num">
+                          <WhatsappButton
+                            phone={d.phone}
+                            title={`WhatsApp a ${d.name}`}
+                            text={`Hola ${d.name.split(' ')[0]}! Te paso el saldo de las clases: ${money(d.owes)}.`}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>

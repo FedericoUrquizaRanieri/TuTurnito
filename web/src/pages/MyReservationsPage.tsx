@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, Clock, MapPin, DollarSign, Trash2, Trophy, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { PaymentStatusBadge } from '../components/PaymentStatusBadge';
+import { WhatsappButton } from '../components/WhatsappButton';
 import { shortDateLabel } from '../lib/dates';
 import type { MyReservation } from '../types';
 import { MyOpenMatchPanel } from '../components/openMatch/MyOpenMatchPanel';
@@ -256,7 +257,13 @@ Los ${players} jugador${players === 1 ? '' : 'es'} que se sumaron reciben un avi
                             <Trash2 size={14} />
                             <span>Cancelar reserva</span>
                           </button>
-                        ) : null}
+                        ) : (
+                          <WhatsappButton
+                            phone={res.complexPhone}
+                            label="Escribir al complejo"
+                            text={`Hola! Tengo un turno el ${shortDateLabel(res.date)} a las ${res.startTime} en ${res.courtName} y necesito cancelarlo.`}
+                          />
+                        )}
                       </div>
                       )}
                     </div>
