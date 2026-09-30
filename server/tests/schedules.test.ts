@@ -59,9 +59,7 @@ describe('schedules (courts and their ranges)', () => {
     const turn = turnsRes.body.turns.find((t: any) => t.startTime === '20:00' && t.courtId === courtA.id);
     expect(turn).toBeDefined();
 
-    const booking = await request(app)
-      .post(`/api/turns/${turn.id}/reservations`)
-      .send({ guestName: 'Test Guest', guestPhone: '2911234567' });
+    const booking = await owner.post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Test Guest', guestPhone: '2911234567' });
     expect(booking.status).toBe(201);
 
     // Closing at 18:00 leaves the 20:00 reservation out of range: rejected, nothing changed.
@@ -96,7 +94,7 @@ describe('schedules (courts and their ranges)', () => {
     const targetDate = nextDateForDayOfWeek(3);
     const turnsRes = await request(app).get(`/api/complexes/${complex.id}/turns`).query({ from: targetDate, to: targetDate });
     const turn = turnsRes.body.turns.find((t: any) => t.startTime === '21:30' && t.courtId === courtA.id);
-    await request(app).post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Se Queda', guestPhone: '2911234567' });
+    await owner.post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Se Queda', guestPhone: '2911234567' });
 
     const resolved = await owner.put(`/api/complexes/${complex.id}/courts`).send({
       courts: complex.courts.map((c: any, i: number) => ({

@@ -12,6 +12,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "seed": "tsx prisma/seed.ts",
+    "create-owner": "tsx scripts/create-owner.ts",
     "pretest": "tsx scripts/prepare-test-db.ts",
     "test": "vitest run"
   },

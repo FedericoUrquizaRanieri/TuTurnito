@@ -2,15 +2,18 @@ import prisma from '../prisma';
 import { Prisma, Reservation, Turn, Payment, ReservationType, PaymentStatus } from '@prisma/client';
 import { HttpError } from '../middleware/HttpError';
 import { UserPayload } from '../middleware/auth';
-import { hasStarted, nowParts, minutesUntil, minutesBefore, NowParts } from './clock';
+import { hasStarted, nowParts, minutesUntil, minutesBefore, today, NowParts } from './clock';
+import { addDays } from './schedule.service';
+import { BOOKING_HORIZON_DAYS, MAX_ACTIVE_RESERVATIONS_PER_COMPLEX } from '../config/limits';
 import { buildPaymentMap, getPaymentsByPayableIds, findOrCreatePaymentForPayable } from './payment.service';
 import { bookTurnTx, releaseReservationTx } from './booking';
 import { createOpenMatchTx, matchCancelledEmails, OpenMatchInput } from './openMatch.service';
 import { sendMails } from './mailer';
 
 export interface CreateReservationInput {
-  guestName: string;
-  guestPhone: string;
+  /** Only for the owner booking on behalf of a client; everyone else books with their account's data. */
+  guestName?: string;
+  guestPhone?: string;
   guestEmail?: string;
   type: ReservationType;
   notes?: string;
@@ -20,7 +23,7 @@ export interface CreateReservationInput {
 
 export type CreateReservationResult =
   | { success: true; reservation: Reservation; turn: Turn; payment: Payment }
-  | { success: false; conflictType: 'OCCUPIED' | 'BLOCKED' | 'STARTED' | 'NOT_FOUND'; message: string };
+  | { success: false; conflictType: 'OCCUPIED' | 'BLOCKED' | 'STARTED' | 'NOT_FOUND' | 'LIMIT'; message: string };
 
 /**
  * Creates a reservation for a turn inside one atomic transaction (turn ->
@@ -36,10 +39,15 @@ export type CreateReservationResult =
 export async function createReservation(
   turnId: string,
   input: CreateReservationInput,
-  requester: UserPayload | undefined
+  requester: UserPayload
 ): Promise<CreateReservationResult> {
+  const account = await prisma.user.findUnique({ where: { id: requester.id } });
+  if (!account) {
+    throw new HttpError(401, 'No autenticado. Por favor inicia sesión.');
+  }
+
   if (input.type === 'CLASS') {
-    if (!requester || requester.role !== 'PROFESOR') {
+    if (requester.role !== 'PROFESOR') {
       throw new HttpError(403, 'Solo profesores autenticados pueden registrar reservas de clase.');
     }
 
@@ -57,7 +65,7 @@ export async function createReservation(
     }
   }
 
-  if (input.openMatch && (!requester || input.type !== 'PLAYER')) {
+  if (input.openMatch && input.type !== 'PLAYER') {
     throw new HttpError(400, 'Para buscar jugadores tenés que reservar con tu cuenta.');
   }
 
@@ -84,26 +92,48 @@ export async function createReservation(
       const complex = turn.court.complex;
       // An owner booking by hand (phone/walk-in) books on behalf of the
       // client: the reservation isn't tied to the owner's own account.
-      const isOwnerBooking = requester?.id === complex.ownerId;
+      const isOwnerBooking = requester.id === complex.ownerId;
+
+      let contact: { guestName: string; guestPhone: string; guestEmail?: string };
+      if (isOwnerBooking) {
+        if (!input.guestName || !input.guestPhone) {
+          throw new HttpError(400, 'Ingresá el nombre y el teléfono del cliente.');
+        }
+        contact = { guestName: input.guestName, guestPhone: input.guestPhone, guestEmail: input.guestEmail || undefined };
+      } else {
+        // The account's own data: whatever the body says is ignored, so a
+        // player can't book under someone else's name or phone.
+        if (!account.phone) {
+          throw new HttpError(400, 'Agregá tu teléfono en tu perfil para poder reservar.');
+        }
+        contact = {
+          guestName: input.type === 'CLASS' ? `Clase - ${account.name}` : account.name,
+          guestPhone: account.phone,
+          guestEmail: account.email,
+        };
+      }
+
+      if (!isOwnerBooking && input.type === 'PLAYER') {
+        const limit = await checkPlayerLimitsTx(tx, requester.id, complex.id, turn.date);
+        if (limit) return { success: false, conflictType: 'LIMIT', message: limit } as const;
+      }
 
       const booked = await bookTurnTx(tx, turn, {
         complexId: complex.id,
-        userId: requester && !isOwnerBooking ? requester.id : null,
-        guestName: input.guestName,
-        guestPhone: input.guestPhone,
-        guestEmail: input.guestEmail,
+        userId: isOwnerBooking ? null : requester.id,
+        ...contact,
         type: input.type,
-        professorId: input.type === 'CLASS' && requester ? requester.id : null,
+        professorId: input.type === 'CLASS' ? requester.id : null,
         notes: input.notes,
-        recordedById: requester ? requester.id : complex.ownerId,
-        paymentNote: `Reserva creada para ${input.guestName}`,
+        recordedById: requester.id,
+        paymentNote: `Reserva creada para ${contact.guestName}`,
       });
 
       if (!booked) {
         return { success: false, conflictType: 'OCCUPIED', message: 'Este turno acaba de ser reservado por otro usuario.' } as const;
       }
 
-      if (input.openMatch && requester && !isOwnerBooking) {
+      if (input.openMatch && !isOwnerBooking) {
         await createOpenMatchTx(tx, booked.reservation.id, requester.id, input.openMatch);
       }
 
@@ -116,6 +146,31 @@ export async function createReservation(
     }
     throw error;
   }
+}
+
+/**
+ * Anti-hoarding limits for a player's own booking: how far ahead, and how
+ * many future turns at once in the same complex. Returns the message to show
+ * when one is exceeded. Two simultaneous requests can both pass the count
+ * (it isn't locked), which only lets one extra booking through; the booking
+ * rate limit keeps that from scaling.
+ */
+async function checkPlayerLimitsTx(tx: Prisma.TransactionClient, userId: string, complexId: string, date: string): Promise<string | null> {
+  const todayStr = today();
+  if (date > addDays(todayStr, BOOKING_HORIZON_DAYS)) {
+    return `Se puede reservar con hasta ${BOOKING_HORIZON_DAYS} días de anticipación.`;
+  }
+
+  const upcoming = await tx.reservation.findMany({
+    where: { userId, complexId, type: 'PLAYER', turn: { date: { gte: todayStr } } },
+    select: { turn: { select: { date: true, startTime: true } } },
+  });
+  const now = nowParts();
+  const active = upcoming.filter((r) => !hasStarted(r.turn.date, r.turn.startTime, now)).length;
+  if (active >= MAX_ACTIVE_RESERVATIONS_PER_COMPLEX) {
+    return `Ya tenés ${MAX_ACTIVE_RESERVATIONS_PER_COMPLEX} turnos reservados en este complejo. Cuando juegues alguno (o lo canceles) podés reservar otro.`;
+  }
+  return null;
 }
 
 function assertCanCancelReservation(

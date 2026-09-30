@@ -30,7 +30,7 @@ async function turnId(complexId: string, courtId: string, date: string, startTim
 async function bookWithMatch(agent: any, complexId: string, courtId: string, date: string, startTime: string, spots = 2) {
   const res = await agent
     .post(`/api/turns/${await turnId(complexId, courtId, date, startTime)}/reservations`)
-    .send({ guestName: 'Olga', guestPhone: '2911234567', openMatch: { spots, category: 'Intermedio' } });
+    .send({ openMatch: { spots, category: 'Intermedio' } });
   expect(res.status).toBe(201);
   const matches = (await request(app).get('/api/open-matches').query({ complexId })).body.matches;
   return { reservation: res.body.reservation, match: matches.find((m: any) => m.date === date && m.startTime === startTime) };
@@ -77,7 +77,7 @@ describe('open matches (partido abierto)', () => {
     // The joined player sees it in "Mis reservas" with the organizer's contact.
     const mine = (await p1.get('/api/reservations/my')).body.reservations;
     const joined = mine.find((r: any) => r.role === 'PLAYER_JOINED');
-    expect(joined.openMatch.organizer.phone).toBe('2911234567');
+    expect(joined.openMatch.organizer.phone).toBe(organizerUser.phone);
     expect(joined.openMatch.players.map((p: any) => p.name)).toEqual(['Pedro', 'Pablo']);
   });
 
@@ -95,17 +95,17 @@ describe('open matches (partido abierto)', () => {
     const { complex, court, organizer } = await setup();
     const res = await organizer
       .post(`/api/turns/${await turnId(complex.id, court.id, dateFromToday(2), '10:00')}/reservations`)
-      .send({ guestName: 'Olga', guestPhone: '2911234567' });
+      .send({});
     const { agent: other } = await registerUser('JUGADOR');
     expect((await other.post(`/api/reservations/${res.body.reservation.id}/open-match`).send({ spots: 1 })).status).toBe(403);
     expect((await organizer.post(`/api/reservations/${res.body.reservation.id}/open-match`).send({ spots: 1 })).status).toBe(201);
     expect((await organizer.post(`/api/reservations/${res.body.reservation.id}/open-match`).send({ spots: 1 })).status).toBe(409);
 
-    // A guest can't ask for players (nobody to notify).
+    // Without an account there's no booking at all, open match or not.
     const guest = await request(app)
       .post(`/api/turns/${await turnId(complex.id, court.id, dateFromToday(2), '11:00')}/reservations`)
       .send({ guestName: 'Invitado', guestPhone: '2911234567', openMatch: { spots: 1 } });
-    expect(guest.status).toBe(400);
+    expect(guest.status).toBe(401);
   });
 
   it('leaving respects the cancellation policy; the organizer can remove players', async () => {

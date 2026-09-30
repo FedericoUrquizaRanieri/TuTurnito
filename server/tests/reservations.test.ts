@@ -44,10 +44,10 @@ describe('reservations', () => {
     const turn = turnsRes.body.turns.find((t: any) => t.startTime === '18:00' && t.courtId === courtA.id);
     expect(turn).toBeDefined();
 
-    const body = { guestName: 'Carrera Concurrente', guestPhone: '2911112222' };
+    const [{ agent: p1 }, { agent: p2 }] = await Promise.all([registerUser('JUGADOR'), registerUser('JUGADOR')]);
     const [r1, r2] = await Promise.all([
-      request(app).post(`/api/turns/${turn.id}/reservations`).send(body),
-      request(app).post(`/api/turns/${turn.id}/reservations`).send(body),
+      p1.post(`/api/turns/${turn.id}/reservations`).send({}),
+      p2.post(`/api/turns/${turn.id}/reservations`).send({}),
     ]);
 
     const statuses = [r1.status, r2.status].sort();
@@ -72,9 +72,8 @@ describe('reservations', () => {
       .query({ from: targetDate, to: targetDate });
     const turn = turnsRes.body.turns.find((t: any) => t.startTime === '20:00' && t.courtId === courtA.id);
 
-    const booking = await request(app)
-      .post(`/api/turns/${turn.id}/reservations`)
-      .send({ guestName: 'Cancelable', guestPhone: '2913334444' });
+    const { agent: player } = await registerUser('JUGADOR');
+    const booking = await player.post(`/api/turns/${turn.id}/reservations`).send({});
     expect(booking.status).toBe(201);
     const reservationId = booking.body.reservation.id;
 

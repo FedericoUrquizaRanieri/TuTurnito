@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../src/index';
 import prisma from '../src/prisma';
+import { createOwnerAccount } from '../src/services/auth.service';
 
 export { app, prisma };
 
@@ -53,14 +54,17 @@ export async function registerUser(
   const email = overrides.email || uniqueEmail(EMAIL_PREFIX[role]);
   const password = overrides.password || 'test1234';
 
-  const res = await agent.post('/api/auth/register').send({
-    name: overrides.name || `Test ${role}`,
-    email,
-    password,
-    phone: overrides.phone || '2914567890',
-    role,
-  });
+  const name = overrides.name || `Test ${role}`;
+  const phone = overrides.phone || '2914567890';
 
+  // Owners can't sign up: they're created by hand, then log in.
+  if (role === 'DUEÑO') {
+    await createOwnerAccount({ email, name, phone, password });
+    const res = await agent.post('/api/auth/login').send({ email, password });
+    return { agent, user: res.body.user, res };
+  }
+
+  const res = await agent.post('/api/auth/register').send({ name, email, password, phone, role });
   return { agent, user: res.body.user, res };
 }
 

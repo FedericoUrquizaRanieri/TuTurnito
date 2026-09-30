@@ -61,15 +61,16 @@ describe('email reminders', () => {
     expect(outbox.filter((m) => m.to === user.email)).toHaveLength(1);
   });
 
-  it('skips players who turned reminders off, guests without email and last-minute bookings', async () => {
+  it('skips players who turned reminders off, clients without email and last-minute bookings', async () => {
     setNow('09:00');
-    const { complex, court } = await setup();
+    const { owner, complex, court } = await setup();
     const { agent: optedOut, user: optedOutUser } = await registerUser('JUGADOR');
     expect((await optedOut.put('/api/auth/me').send({ emailReminders: false })).body.user.emailReminders).toBe(false);
     await book(optedOut, complex.id, court.id, dateFromToday(1), '08:00');
 
-    const guest = await book(request(app), complex.id, court.id, dateFromToday(1), '09:00');
-    const guestWithEmail = await book(request(app), complex.id, court.id, dateFromToday(0), '10:00', { guestEmail: 'guest@test.local' });
+    // Clients the owner booked for (by phone or at the counter).
+    const guest = await book(owner, complex.id, court.id, dateFromToday(1), '09:00');
+    const guestWithEmail = await book(owner, complex.id, court.id, dateFromToday(0), '10:00', { guestEmail: 'guest@test.local' });
 
     setNow('09:30');
     await runReminderSweep();
@@ -80,10 +81,10 @@ describe('email reminders', () => {
     expect((await prisma.reservation.findUnique({ where: { id: guestWithEmail.id } }))?.reminderSentAt).toBeNull();
   });
 
-  it('reminds a guest who left an email', async () => {
+  it('reminds a client the owner booked for with an email', async () => {
     setNow('08:00');
-    const { complex, court } = await setup();
-    await book(request(app), complex.id, court.id, dateFromToday(0), '20:00', { guestEmail: 'invitada@test.local', guestName: 'Invitada' });
+    const { owner, complex, court } = await setup();
+    await book(owner, complex.id, court.id, dateFromToday(0), '20:00', { guestEmail: 'invitada@test.local', guestName: 'Invitada' });
     await runReminderSweep();
     expect(outbox.filter((m) => m.to === 'invitada@test.local')).toHaveLength(1);
   });

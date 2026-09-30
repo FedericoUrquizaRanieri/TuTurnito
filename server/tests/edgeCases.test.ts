@@ -98,22 +98,22 @@ describe('edge cases', () => {
 
   it('1. rejects booking a turn that already started today or a past date, but allows a later one today', async () => {
     setNow('15:00');
-    const { complex, court } = await ownerWithComplex({ openTime: '08:00', closeTime: '23:00', slotMinutes: 90 });
+    const { owner, complex, court } = await ownerWithComplex({ openTime: '08:00', closeTime: '23:00', slotMinutes: 90 });
     const today = dateFromToday(0);
 
     const started = await getTurn(complex.id, today, court.id, '14:00');
-    const res = await request(app).post(`/api/turns/${started.id}/reservations`).send(GUEST);
+    const res = await owner.post(`/api/turns/${started.id}/reservations`).send(GUEST);
     expect([400, 409]).toContain(res.status);
     expect((await prisma.turn.findUnique({ where: { id: started.id } }))?.state).toBe('AVAILABLE');
 
     const past = await prisma.turn.create({
       data: { courtId: court.id, date: dateFromToday(-1), startTime: '20:00', endTime: '21:30', price: 12000 },
     });
-    const pastRes = await request(app).post(`/api/turns/${past.id}/reservations`).send(GUEST);
+    const pastRes = await owner.post(`/api/turns/${past.id}/reservations`).send(GUEST);
     expect([400, 409]).toContain(pastRes.status);
 
     const later = await getTurn(complex.id, today, court.id, '15:30');
-    expect((await request(app).post(`/api/turns/${later.id}/reservations`).send(GUEST)).status).toBe(201);
+    expect((await owner.post(`/api/turns/${later.id}/reservations`).send(GUEST)).status).toBe(201);
   });
 
   // ── 2. Classes that started before the schedule / enrollment existed ───
@@ -420,7 +420,7 @@ describe('edge cases', () => {
     expect(turns.map((t: any) => t.startTime)).toEqual(['21:00', '22:30']);
     expect(['00:00', '24:00']).toContain(turns[1].endTime);
 
-    expect((await request(app).post(`/api/turns/${turns[1].id}/reservations`).send(GUEST)).status).toBe(201);
+    expect((await owner.post(`/api/turns/${turns[1].id}/reservations`).send(GUEST)).status).toBe(201);
 
     const fixed = await owner.post(`/api/complexes/${complex.id}/fixed-bookings`).send({
       courtId: court.id, dayOfWeek: parseDateString(dateFromToday(3)).dayOfWeek, startTime: '22:30', guestName: 'Trasnoche', guestPhone: '2917778888',
@@ -444,7 +444,7 @@ describe('edge cases', () => {
       vi.useFakeTimers({ toFake: ['Date'] });
       vi.setSystemTime(new Date(`${artDate}T22:30:00-03:00`));
 
-      const { professor, professorUser, complex, court, courtB } = await withProfessor({ openTime: '08:00', closeTime: '24:00', slotMinutes: 60, basePrice: 10000 });
+      const { owner, professor, professorUser, complex, court, courtB } = await withProfessor({ openTime: '08:00', closeTime: '24:00', slotMinutes: 60, basePrice: 10000 });
 
       const defaultDay = await request(app).get(`/api/complexes/${complex.id}/turns`);
       expect(defaultDay.body.turns[0]?.date).toBe(artDate);
@@ -452,7 +452,7 @@ describe('edge cases', () => {
       // The 23:00 turn of today (Argentina) hasn't started: bookable.
       const lateTurn = await getTurn(complex.id, artDate, courtB.id, '23:00');
       expect(lateTurn).toBeDefined();
-      expect((await request(app).post(`/api/turns/${lateTurn.id}/reservations`).send(GUEST)).status).toBe(201);
+      expect((await owner.post(`/api/turns/${lateTurn.id}/reservations`).send(GUEST)).status).toBe(201);
 
       // ...and a class at 23:00 today isn't charged yet.
       const schedule = await createSchedule(professor, complex.id, court.id, artDate, '23:00', '24:00');

@@ -3,6 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, GraduationCap, User as UserIcon, Zap } from 'lucide-react';
 import { Banner } from '../components/Banner';
+import { joinComplexMailto } from '../lib/contact';
+import { Turnstile, turnstileEnabled } from '../components/Turnstile';
 
 export const AuthPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -17,7 +19,11 @@ export const AuthPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [role, setRole] = useState<'JUGADOR' | 'DUEÑO' | 'PROFESOR'>('JUGADOR');
+  const [role, setRole] = useState<'JUGADOR' | 'PROFESOR'>('JUGADOR');
+  // Captcha token (single use): a fresh one is requested after every attempt.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null);
+  const [captchaReset, setCaptchaReset] = useState(0);
+  const waitingCaptcha = turnstileEnabled && !captchaToken;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,14 +49,15 @@ export const AuthPage: React.FC = () => {
 
     try {
       if (mode === 'login') {
-        const u = await login(email, password);
+        const u = await login(email, password, captchaToken);
         goAfterAuth(u);
       } else {
-        const u = await register({ name, email, password, phone, role });
+        const u = await register({ name, email, password, phone, role }, captchaToken);
         goAfterAuth(u);
       }
     } catch (err: any) {
       setError(err.message || 'Error al procesar la solicitud');
+      setCaptchaReset((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -60,10 +67,11 @@ export const AuthPage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const u = await loginDemo(demoRole);
+      const u = await loginDemo(demoRole, captchaToken);
       goAfterAuth(u);
     } catch (err: any) {
       setError(err.message || 'Error con cuenta demo');
+      setCaptchaReset((n) => n + 1);
     } finally {
       setLoading(false);
     }
@@ -156,7 +164,7 @@ export const AuthPage: React.FC = () => {
               {/* Role Selector with Rich Cards */}
               <div className="form-group">
                 <label className="form-label">¿Cuál es tu rol? *</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.5rem' }}>
                   <button
                     type="button"
                     onClick={() => setRole('JUGADOR')}
@@ -179,26 +187,6 @@ export const AuthPage: React.FC = () => {
 
                   <button
                     type="button"
-                    onClick={() => setRole('DUEÑO')}
-                    style={{
-                      background: role === 'DUEÑO' ? 'rgba(6, 182, 212, 0.2)' : 'var(--bg-surface)',
-                      border: `1px solid ${role === 'DUEÑO' ? 'var(--accent-cyan)' : 'var(--border-subtle)'}`,
-                      borderRadius: 'var(--radius-md)',
-                      padding: '0.75rem 0.5rem',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: '0.35rem',
-                      color: role === 'DUEÑO' ? '#ffffff' : 'var(--text-muted)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <ShieldCheck size={20} color={role === 'DUEÑO' ? 'var(--accent-cyan)' : 'currentColor'} />
-                    <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>Dueño</span>
-                  </button>
-
-                  <button
-                    type="button"
                     onClick={() => setRole('PROFESOR')}
                     style={{
                       background: role === 'PROFESOR' ? 'rgba(163, 230, 53, 0.2)' : 'var(--bg-surface)',
@@ -217,6 +205,10 @@ export const AuthPage: React.FC = () => {
                     <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>Profesor</span>
                   </button>
                 </div>
+                <span style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.5rem' }}>
+                  ¿Tenés un complejo?{' '}
+                  {joinComplexMailto ? <a href={joinComplexMailto}>Escribinos</a> : 'Escribinos'} y te creamos la cuenta de dueño.
+                </span>
               </div>
 
               <div className="form-group">
@@ -257,13 +249,15 @@ export const AuthPage: React.FC = () => {
             />
           </div>
 
+          <Turnstile onToken={setCaptchaToken} resetKey={captchaReset} />
+
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || waitingCaptcha}
             className="btn btn-primary btn-lg"
             style={{ width: '100%', marginTop: '0.75rem', fontWeight: 700 }}
           >
-            {loading ? 'Procesando...' : mode === 'login' ? 'Ingresar a mi cuenta' : 'Crear mi cuenta'}
+            {loading ? 'Procesando...' : waitingCaptcha ? 'Verificando...' : mode === 'login' ? 'Ingresar a mi cuenta' : 'Crear mi cuenta'}
           </button>
         </form>
 
@@ -294,6 +288,7 @@ export const AuthPage: React.FC = () => {
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => handleDemo('DUEÑO')}
+              disabled={loading || waitingCaptcha}
               style={{ fontSize: '0.75rem', padding: '0.5rem 0.25rem' }}
             >
               <ShieldCheck size={14} color="#38bdf8" />
@@ -304,6 +299,7 @@ export const AuthPage: React.FC = () => {
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => handleDemo('PROFESOR')}
+              disabled={loading || waitingCaptcha}
               style={{ fontSize: '0.75rem', padding: '0.5rem 0.25rem' }}
             >
               <GraduationCap size={14} color="#a3e635" />
@@ -314,6 +310,7 @@ export const AuthPage: React.FC = () => {
               type="button"
               className="btn btn-secondary btn-sm"
               onClick={() => handleDemo('JUGADOR')}
+              disabled={loading || waitingCaptcha}
               style={{ fontSize: '0.75rem', padding: '0.5rem 0.25rem' }}
             >
               <UserIcon size={14} color="#34d399" />

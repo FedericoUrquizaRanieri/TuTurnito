@@ -5,6 +5,7 @@ import { z } from 'zod';
 import prisma from '../prisma';
 import { requireAuth, UserPayload } from '../middleware/auth';
 import { validate } from '../middleware/validate';
+import { requireTurnstile } from '../middleware/turnstile';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
 import { JWT_SECRET } from '../env';
@@ -17,8 +18,9 @@ const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
   phone: z.string().optional(),
-  role: z.enum(['JUGADOR', 'DUEÑO', 'PROFESOR'], {
-    errorMap: () => ({ message: 'El rol debe ser JUGADOR, DUEÑO o PROFESOR' }),
+  // Owner accounts are created by hand when a complex joins (npm run create-owner).
+  role: z.enum(['JUGADOR', 'PROFESOR'], {
+    errorMap: () => ({ message: 'El rol debe ser JUGADOR o PROFESOR' }),
   }),
 });
 
@@ -57,6 +59,7 @@ function setAuthCookie(res: Response, token: string) {
 // POST /api/auth/register
 router.post(
   '/register',
+  requireTurnstile,
   validate(registerSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { name, email, password, phone, role } = req.body;
@@ -107,6 +110,7 @@ router.post(
 // POST /api/auth/login
 router.post(
   '/login',
+  requireTurnstile,
   validate(loginSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body;
