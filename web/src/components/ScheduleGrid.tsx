@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { Calendar as CalendarIcon, Sparkles, GraduationCap, Trophy } from 'lucide-react';
 import { ReservationModal } from './ReservationModal';
 import { hasStarted } from '../lib/dates';
-import type { Turn } from '../types';
+import type { PublicTurn } from '../types';
 
 // Re-exported under this name since ComplexDetailPage.tsx already imports
 // PublicTurnData from this module — the shape lives in web/src/types.
-export type PublicTurnData = Turn;
+export type PublicTurnData = PublicTurn;
 
 interface ScheduleGridProps {
   complexId: string;

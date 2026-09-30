@@ -6,6 +6,7 @@ import type {
   Closure,
   PriceRule,
   Turn,
+  PublicTurn,
   OwnerTurn,
   Reservation,
   FixedBookingConflict,
@@ -212,7 +213,7 @@ export const api = {
   // Turns & Public Calendar
   turns: {
     getByDateRange: (complexId: string, fromDate: string, toDate: string) =>
-      request<{ turns: Turn[] }>(`/complexes/${complexId}/turns?from=${fromDate}&to=${toDate}`),
+      request<{ turns: PublicTurn[] }>(`/complexes/${complexId}/turns?from=${fromDate}&to=${toDate}`),
     update: (
       complexId: string,
       turnId: string,

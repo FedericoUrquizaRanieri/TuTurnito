@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
-import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts } from './helpers';
+import { app, prisma, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts } from './helpers';
 
 describe('schedules (courts and their ranges)', () => {
   beforeAll(async () => {
@@ -106,9 +106,9 @@ describe('schedules (courts and their ranges)', () => {
     });
     expect(resolved.status).toBe(200);
 
-    const turnsAfter = await request(app).get(`/api/complexes/${complex.id}/turns`).query({ from: targetDate, to: targetDate });
-    const kept = turnsAfter.body.turns.find((t: any) => t.id === turn.id);
-    expect(kept.state).toBe('OCCUPIED');
-    expect(kept.reservation.guestName).toBe('Se Queda');
+    await request(app).get(`/api/complexes/${complex.id}/turns`).query({ from: targetDate, to: targetDate });
+    const kept = await prisma.turn.findUnique({ where: { id: turn.id }, include: { reservation: true } });
+    expect(kept?.state).toBe('OCCUPIED');
+    expect(kept?.reservation?.guestName).toBe('Se Queda');
   });
 });

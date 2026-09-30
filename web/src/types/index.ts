@@ -87,7 +87,7 @@ export interface ComplexSummary {
   courtCount: number;
   minPrice: number | null;
   maxPrice: number | null;
-  owner: { id: string; name: string; phone: string | null };
+  owner: { id: string; name: string };
 }
 
 /** The full complex shape from GET /api/complexes/:id and POST/PUT /api/complexes. */
@@ -106,7 +106,7 @@ export interface Complex {
   /** Players can cancel from the app up to this many hours before the turn (0 = until it starts). */
   cancellationHours?: number;
   ownerId: string;
-  owner?: { id: string; name: string; phone: string | null; email?: string };
+  owner?: { id: string; name: string };
   courts: Court[];
   createdAt?: string;
   updatedAt?: string;
@@ -140,6 +140,14 @@ export interface Turn {
   court: { id: string; name: string; basePrice?: number };
   reservation?: TurnReservationSummary | null;
 }
+
+/**
+ * GET /api/complexes/:id/turns — a turn as anyone (no login) sees it: whether
+ * it's taken and if it's a class, never who booked it.
+ */
+export type PublicTurn = Omit<Turn, 'reservation' | 'manualOverride' | 'closureId'> & {
+  reservation: { type: ReservationType } | null;
+};
 
 /** GET /api/complexes/:id/owner-turns — a turn in the owner's grid, reservation joined with its payment. */
 export interface OwnerTurn extends Turn {
