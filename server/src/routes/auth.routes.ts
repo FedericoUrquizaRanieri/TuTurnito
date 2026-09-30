@@ -8,6 +8,7 @@ import { validate } from '../middleware/validate';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
 import { JWT_SECRET } from '../env';
+import { hashPassword } from '../services/auth.service';
 
 const router = Router();
 
@@ -31,6 +32,9 @@ const updateProfileSchema = z.object({
   email: z.string().email().optional(),
   phone: z.string().optional(),
   emailReminders: z.boolean().optional(),
+  // Required to change the email or the password.
+  currentPassword: z.string().optional(),
+  newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres').optional(),
 });
 
 function createToken(payload: UserPayload): string {
@@ -63,8 +67,7 @@ router.post(
       throw new HttpError(409, 'El email ya se encuentra registrado.');
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
+    const passwordHash = await hashPassword(password);
 
     const newUser = await prisma.user.create({
       data: {
@@ -199,11 +202,26 @@ router.put(
   requireAuth,
   validate(updateProfileSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, phone, emailReminders } = req.body;
+    const { name, email, phone, emailReminders, currentPassword, newPassword } = req.body;
     const userId = req.user!.id;
 
-    if (email) {
-      const normalizedEmail = email.trim().toLowerCase();
+    const current = await prisma.user.findUnique({ where: { id: userId } });
+    if (!current) {
+      throw new HttpError(404, 'Usuario no encontrado.');
+    }
+
+    const normalizedEmail = email ? email.trim().toLowerCase() : undefined;
+    const emailChanges = normalizedEmail !== undefined && normalizedEmail !== current.email;
+
+    // Whoever holds the session (a borrowed phone, a stolen cookie) must
+    // not be able to take the account over by swapping its email or password.
+    if (emailChanges || newPassword) {
+      if (!currentPassword || !(await bcrypt.compare(currentPassword, current.passwordHash))) {
+        throw new HttpError(403, 'Para cambiar el email o la contraseña ingresá tu contraseña actual.');
+      }
+    }
+
+    if (emailChanges) {
       const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
       if (existing && existing.id !== userId) {
         throw new HttpError(409, 'El nuevo email ya está en uso por otra cuenta.');
@@ -214,11 +232,15 @@ router.put(
       where: { id: userId },
       data: {
         ...(name ? { name: name.trim() } : {}),
-        ...(email ? { email: email.trim().toLowerCase() } : {}),
+        ...(emailChanges ? { email: normalizedEmail } : {}),
         ...(phone !== undefined ? { phone: phone?.trim() || null } : {}),
         ...(emailReminders !== undefined ? { emailReminders } : {}),
+        ...(newPassword ? { passwordHash: await hashPassword(newPassword) } : {}),
       },
     });
+
+    // The session token carries the name and email: reissue it so they don't go stale.
+    setAuthCookie(res, createToken({ id: updatedUser.id, email: updatedUser.email, name: updatedUser.name, role: updatedUser.role }));
 
     return res.json({
       message: 'Perfil actualizado exitosamente',

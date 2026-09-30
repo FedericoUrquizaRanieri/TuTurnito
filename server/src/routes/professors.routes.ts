@@ -104,7 +104,7 @@ router.put(
   asyncHandler(async (req: Request, res: Response) => {
     const requestId = req.params.requestId as string;
     const { status } = req.body;
-    const request = await resolveProfessorRequest(requestId, status);
+    const request = await resolveProfessorRequest(req.params.id as string, requestId, status);
     return res.json({
       message: `Solicitud ${status === 'APPROVED' ? 'aprobada' : 'rechazada'} exitosamente.`,
       request,

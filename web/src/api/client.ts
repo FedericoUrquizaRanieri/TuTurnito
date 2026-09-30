@@ -128,11 +128,14 @@ interface RegisterInput {
   role: UserRole;
 }
 
-interface UpdateProfileInput {
+export interface UpdateProfileInput {
   name?: string;
   email?: string;
   phone?: string;
   emailReminders?: boolean;
+  /** Required when changing the email or the password. */
+  currentPassword?: string;
+  newPassword?: string;
 }
 
 interface AuthResponse {

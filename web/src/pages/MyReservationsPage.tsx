@@ -243,7 +243,9 @@ Los ${players} jugador${players === 1 ? '' : 'es'} que se sumaron reciben un avi
                         paddingTop: '0.75rem',
                       }}>
                         <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                          {res.canCancel
+                          {res.loadedByComplex
+                            ? `La cargó el complejo con tu email: para cancelarla hablá con el complejo${res.complexPhone ? ` al ${res.complexPhone}` : ''}.`
+                            : res.canCancel
                             ? res.cancellationHours > 0 && res.type === 'PLAYER'
                               ? `Podés cancelar desde la app hasta el ${shortDateLabel(res.cancelDeadline.date)} a las ${res.cancelDeadline.time} hs.`
                               : 'Podés cancelar hasta que empiece el turno.'

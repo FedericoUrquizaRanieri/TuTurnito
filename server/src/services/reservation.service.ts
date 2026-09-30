@@ -119,13 +119,13 @@ export async function createReservation(
 }
 
 function assertCanCancelReservation(
-  reservation: { userId: string | null; guestEmail: string | null; complex: { ownerId: string } },
+  reservation: { userId: string | null; complex: { ownerId: string } },
   user: UserPayload
 ) {
-  // A reservation made as a guest (no account) belongs to whoever registers with its email.
-  const isPlayerWhoBooked =
-    reservation.userId === user.id ||
-    (reservation.userId === null && Boolean(reservation.guestEmail) && reservation.guestEmail!.toLowerCase() === user.email.toLowerCase());
+  // Only the account that booked it (or the owner). A booking the owner
+  // loaded with a client's email shows up in that client's "Mis reservas",
+  // but emails aren't verified, so matching one isn't proof enough to cancel.
+  const isPlayerWhoBooked = reservation.userId === user.id;
   const isOwner = reservation.complex.ownerId === user.id;
   if (!isPlayerWhoBooked && !isOwner) {
     throw new HttpError(403, 'No tienes permiso para cancelar esta reserva.');
@@ -346,8 +346,11 @@ export async function getMyReservations(userId: string, userEmail: string) {
       cancellationHours: r.complex.cancellationHours,
       /** Until when the player can cancel (or leave the match) from the app (local date and time). */
       cancelDeadline: { date: deadline.today, time: deadline.time },
+      /** The complex loaded it with my email (not booked from my account): only the complex can cancel it. */
+      loadedByComplex: role === 'BOOKER' && r.userId !== userId,
       // The policy applies to player bookings; a professor's class can be cancelled until it starts.
-      canCancel: !hasStarted(r.type === 'PLAYER' ? deadline.today : r.turn.date, r.type === 'PLAYER' ? deadline.time : r.turn.startTime, now),
+      // Bookings matched only by email (loaded by the owner) are cancelled through the complex.
+      canCancel: (role !== 'BOOKER' || r.userId === userId) && !hasStarted(r.type === 'PLAYER' ? deadline.today : r.turn.date, r.type === 'PLAYER' ? deadline.time : r.turn.startTime, now),
       openMatch: m
         ? {
             id: m.id,

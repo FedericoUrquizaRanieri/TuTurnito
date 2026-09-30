@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, SESSION_EXPIRED_EVENT } from '../api/client';
+import { api, UpdateProfileInput, SESSION_EXPIRED_EVENT } from '../api/client';
 import type { UserRole } from '../types';
 
 export interface User {
@@ -34,7 +34,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<User>;
   register: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => Promise<User>;
   logout: () => Promise<void>;
-  updateProfile: (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => Promise<void>;
+  updateProfile: (data: UpdateProfileInput) => Promise<void>;
   refreshUser: () => Promise<void>;
   loginDemo: (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR') => Promise<User>;
 }
@@ -88,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const updateProfile = async (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => {
+  const updateProfile = async (data: UpdateProfileInput) => {
     const res = await api.auth.updateProfile(data);
     setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
   };

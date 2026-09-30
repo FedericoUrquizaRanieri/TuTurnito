@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { ensureTurnsForRange } from '../services/schedule.service';
+import { ensureTurnsForRange, addDays } from '../services/schedule.service';
+import { PUBLIC_TURNS_DAYS_AHEAD, PUBLIC_TURNS_DAYS_BACK } from '../config/limits';
 import { today } from '../services/clock';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
@@ -57,6 +58,13 @@ router.get(
     const rangeDays = (new Date(toDateStr).getTime() - new Date(fromDateStr).getTime()) / (1000 * 60 * 60 * 24);
     if (rangeDays > MAX_RANGE_DAYS) {
       throw new HttpError(400, `El rango de fechas no puede superar los ${MAX_RANGE_DAYS} días.`);
+    }
+
+    if (fromDateStr < addDays(todayStr, -PUBLIC_TURNS_DAYS_BACK) || toDateStr > addDays(todayStr, PUBLIC_TURNS_DAYS_AHEAD)) {
+      throw new HttpError(
+        400,
+        `Solo se pueden consultar turnos desde ${PUBLIC_TURNS_DAYS_BACK} días atrás hasta ${PUBLIC_TURNS_DAYS_AHEAD} días adelante.`
+      );
     }
 
     const turns = await ensureTurnsForRange(id, fromDateStr, toDateStr);

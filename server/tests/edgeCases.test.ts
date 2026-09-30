@@ -344,17 +344,19 @@ describe('edge cases', () => {
 
   // ── 12. "Mis reservas" matched by email ─────────────────────────────────
 
-  it('12a. someone who booked as a guest and then registered with that email can see and cancel it', async () => {
-    const { complex, court } = await ownerWithComplex();
+  it('12a. a booking the owner loaded with my email shows up in my reservations, but only the complex can cancel it', async () => {
+    const { owner, complex, court } = await ownerWithComplex();
     const email = `guest-${Date.now()}@test.local`;
     const turn = await getTurn(complex.id, dateFromToday(2), court.id, '18:30');
-    const booking = await request(app).post(`/api/turns/${turn.id}/reservations`).send({ ...GUEST, guestEmail: email });
+    const booking = await owner.post(`/api/turns/${turn.id}/reservations`).send({ ...GUEST, guestEmail: email });
     expect(booking.status).toBe(201);
 
+    // Emails aren't verified: registering with one isn't proof it's yours.
     const { agent: player } = await registerUser('JUGADOR', { email });
-    const mine = await player.get('/api/reservations/my');
-    expect(mine.body.reservations.map((r: any) => r.id)).toContain(booking.body.reservation.id);
-    expect((await player.delete(`/api/reservations/${booking.body.reservation.id}`)).status).toBe(200);
+    const mine = (await player.get('/api/reservations/my')).body.reservations.find((r: any) => r.id === booking.body.reservation.id);
+    expect(mine).toMatchObject({ canCancel: false, loadedByComplex: true });
+    expect((await player.delete(`/api/reservations/${booking.body.reservation.id}`)).status).toBe(403);
+    expect((await owner.delete(`/api/reservations/${booking.body.reservation.id}`)).status).toBe(200);
   });
 
   it('12b. a reservation another logged-in user made with my email does not show up in my reservations', async () => {

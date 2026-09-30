@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
-import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts } from './helpers';
+import { app, resetDb, registerUser, createComplexForOwner, nextDateForDayOfWeek, configureCourts, dateFromToday } from './helpers';
 
 describe('reservations', () => {
   beforeAll(async () => {
@@ -13,8 +13,9 @@ describe('reservations', () => {
 
     await configureCourts(owner, complex, { openTime: '08:00', closeTime: '12:30' });
 
-    const from = '2027-03-01';
-    const to = '2027-03-07';
+    // Far enough out that nothing generated these days yet.
+    const from = dateFromToday(70);
+    const to = dateFromToday(76);
 
     const responses = await Promise.all(
       Array.from({ length: 8 }).map(() =>
