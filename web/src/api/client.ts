@@ -3,12 +3,16 @@ import type {
   ComplexSummary,
   Court,
   FixedBooking,
+  Closure,
+  PriceRule,
   Turn,
   OwnerTurn,
   Reservation,
   FixedBookingConflict,
   OwnerReservationView,
   MyReservation,
+  OpenMatchSummary,
+  OpenMatchInput,
   Payment,
   Student,
   StudentWithBalance,
@@ -17,6 +21,8 @@ import type {
   StudentAccount,
   ProfessorRequest,
   UserRole,
+  ComplexAnalytics,
+  ProfessorAnalytics,
 } from '../types';
 import type { User } from '../context/AuthContext';
 
@@ -125,6 +131,7 @@ interface UpdateProfileInput {
   name?: string;
   email?: string;
   phone?: string;
+  emailReminders?: boolean;
 }
 
 interface AuthResponse {
@@ -234,9 +241,43 @@ export const api = {
       }),
   },
 
+  // Analytics (owner and professor dashboards)
+  analytics: {
+    complex: (complexId: string, from: string, to: string) =>
+      request<ComplexAnalytics>(`/complexes/${complexId}/analytics?from=${from}&to=${to}`),
+    professor: (from: string, to: string) => request<ProfessorAnalytics>(`/professors/analytics?from=${from}&to=${to}`),
+  },
+
+  // Price rules (precios por franja: peak hours, promos)
+  priceRules: {
+    list: (complexId: string) => request<{ rules: PriceRule[] }>(`/complexes/${complexId}/price-rules`),
+    /** Replaces every rule of the complex and re-prices the upcoming free turns. */
+    save: (complexId: string, rules: Omit<PriceRule, 'id' | 'court'>[]) =>
+      request<{ message: string; rules: PriceRule[] }>(`/complexes/${complexId}/price-rules`, {
+        method: 'PUT',
+        body: JSON.stringify({ rules }),
+      }),
+  },
+
+  // Closures (feriados / cierres: every court blocked for a date range)
+  closures: {
+    list: (complexId: string) => request<{ closures: Closure[] }>(`/complexes/${complexId}/closures`),
+    /** 409 with `data.conflicts` (ClosureConflict[]) when there are reservations on those days and cancelConflicts isn't set. */
+    create: (complexId: string, body: { startDate: string; endDate: string; reason: string; cancelConflicts?: boolean }) =>
+      request<{ message: string; closure: Closure; cancelled: number }>(`/complexes/${complexId}/closures`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    remove: (complexId: string, closureId: string) =>
+      request<{ message: string }>(`/complexes/${complexId}/closures/${closureId}`, { method: 'DELETE' }),
+  },
+
   // Reservations
   reservations: {
-    create: (turnId: string, body: { guestName: string; guestPhone: string; guestEmail?: string; type?: 'PLAYER' | 'CLASS'; notes?: string }) =>
+    create: (
+      turnId: string,
+      body: { guestName: string; guestPhone: string; guestEmail?: string; type?: 'PLAYER' | 'CLASS'; notes?: string; openMatch?: OpenMatchInput }
+    ) =>
       request<CreateReservationResponse>(`/turns/${turnId}/reservations`, { method: 'POST', body: JSON.stringify(body) }),
     cancel: (id: string) => request<{ message: string }>(`/reservations/${id}`, { method: 'DELETE' }),
     getComplexReservations: (complexId: string, range?: { from: string; to: string }) =>
@@ -246,6 +287,27 @@ export const api = {
     updatePayment: (reservationId: string, body: { status: 'PAID' | 'PENDING'; amount?: number }) =>
       request<{ message: string; payment: Payment }>(`/reservations/${reservationId}/payment`, { method: 'PUT', body: JSON.stringify(body) }),
     getMyReservations: () => request<{ reservations: MyReservation[] }>('/reservations/my'),
+    /** "Me faltan jugadores": publish / edit / unpublish my booking as an open match. */
+    openMatch: (reservationId: string, body: OpenMatchInput) =>
+      request<{ message: string }>(`/reservations/${reservationId}/open-match`, { method: 'POST', body: JSON.stringify(body) }),
+    updateOpenMatch: (reservationId: string, body: OpenMatchInput) =>
+      request<{ message: string }>(`/reservations/${reservationId}/open-match`, { method: 'PATCH', body: JSON.stringify(body) }),
+    closeOpenMatch: (reservationId: string) =>
+      request<{ message: string }>(`/reservations/${reservationId}/open-match`, { method: 'DELETE' }),
+  },
+
+  // Open matches (partidos abiertos: players joining a booking that's missing players)
+  openMatches: {
+    list: (params: { complexId?: string; location?: string; date?: string; category?: string } = {}) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => v && q.append(k, v));
+      const qs = q.toString() ? `?${q.toString()}` : '';
+      return request<{ matches: OpenMatchSummary[]; categories: string[] }>(`/open-matches${qs}`);
+    },
+    join: (matchId: string) => request<{ message: string }>(`/open-matches/${matchId}/join`, { method: 'POST' }),
+    leave: (matchId: string) => request<{ message: string }>(`/open-matches/${matchId}/join`, { method: 'DELETE' }),
+    removePlayer: (matchId: string, userId: string) =>
+      request<{ message: string }>(`/open-matches/${matchId}/players/${userId}`, { method: 'DELETE' }),
   },
 
   // Professors

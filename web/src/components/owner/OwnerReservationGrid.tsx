@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Lock, Trophy, Repeat, GraduationCap, RefreshCw } from 'lucide-react';
+import { Lock, Trophy, Repeat, GraduationCap, RefreshCw, Users } from 'lucide-react';
 import { api } from '../../api/client';
 import { DatePillStrip } from '../DatePillStrip';
 import { Banner } from '../Banner';
@@ -194,6 +194,7 @@ export const OwnerReservationGrid: React.FC<OwnerReservationGridProps> = ({ comp
                               <span className="og-cell-title">
                                 {r.fixedBookingId && <Repeat size={11} />}
                                 {r.type === 'CLASS' && <GraduationCap size={11} />}
+                                {r.openMatch && <Users size={11} aria-label="Partido abierto" />}
                                 {r.guestName}
                               </span>
                               <span className={`badge ${r.paymentStatus === 'PAID' ? 'badge-paid' : 'badge-pending'}`} style={{ fontSize: '0.62rem', padding: '0.1rem 0.35rem' }}>
@@ -207,7 +208,7 @@ export const OwnerReservationGrid: React.FC<OwnerReservationGridProps> = ({ comp
                             </>
                           ) : turn.state === 'BLOCKED' ? (
                             <>
-                              <span className="og-cell-title"><Lock size={11} /> Bloqueado</span>
+                              <span className="og-cell-title"><Lock size={11} /> {turn.label || 'Bloqueado'}</span>
                               <span className="og-cell-sub">hasta {turn.endTime}</span>
                             </>
                           ) : (

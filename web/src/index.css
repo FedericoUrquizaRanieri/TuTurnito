@@ -276,6 +276,14 @@ button {
   border: 1px solid rgba(167, 139, 250, 0.35);
 }
 
+.badge-promo {
+  background: rgba(242, 165, 61, 0.15);
+  color: var(--accent-secondary);
+  border: 1px solid rgba(242, 165, 61, 0.35);
+  font-size: 0.62rem;
+  padding: 0.1rem 0.4rem;
+}
+
 .badge-paid {
   background: rgba(52, 199, 149, 0.18);
   color: #5cd9a8;
@@ -1132,4 +1140,129 @@ button {
     bottom: 1rem;
     width: auto;
   }
+}
+
+/* Partidos abiertos */
+.open-match-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.open-match-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1.1rem 1.2rem;
+  border-left: 3px solid var(--accent-secondary);
+}
+
+/* Analíticas */
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+  gap: 1.25rem;
+}
+
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 1rem;
+}
+
+.chart-card {
+  padding: 1.25rem;
+  min-width: 0;
+}
+
+.chart-tooltip {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--text-main);
+  box-shadow: var(--shadow-md);
+}
+
+.range-picker {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.range-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  border-radius: var(--radius-full);
+  padding: 0.35rem 0.8rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.range-pill.active {
+  background: rgba(58, 122, 240, 0.18);
+  border-color: var(--accent-primary);
+  color: var(--text-main);
+}
+
+.heatmap-scroll {
+  overflow-x: auto;
+}
+
+.heatmap {
+  display: grid;
+  gap: 3px;
+  min-width: max-content;
+}
+
+.heatmap-hour,
+.heatmap-day {
+  font-size: 0.7rem;
+  color: var(--text-subtle);
+  display: flex;
+  align-items: center;
+}
+
+.heatmap-hour {
+  justify-content: center;
+}
+
+.heatmap-cell {
+  height: 26px;
+  border-radius: 4px;
+}
+
+.heatmap-cell:focus-visible,
+.heatmap-cell:hover {
+  outline: 2px solid var(--text-main);
+  outline-offset: 1px;
+}
+
+.analytics-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.analytics-table th {
+  text-align: left;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-subtle);
+  font-weight: 700;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.analytics-table td {
+  padding: 0.5rem;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.analytics-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }

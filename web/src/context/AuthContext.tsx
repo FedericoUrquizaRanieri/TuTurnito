@@ -8,6 +8,8 @@ export interface User {
   email: string;
   phone?: string | null;
   role: UserRole;
+  /** Email reminder ~24 h before each turn (on by default). */
+  emailReminders?: boolean;
   ownedComplexes?: Array<{
     id: string;
     name: string;
@@ -32,7 +34,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<User>;
   register: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => Promise<User>;
   logout: () => Promise<void>;
-  updateProfile: (data: { name?: string; email?: string; phone?: string }) => Promise<void>;
+  updateProfile: (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => Promise<void>;
   refreshUser: () => Promise<void>;
   loginDemo: (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR') => Promise<User>;
 }
@@ -86,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const updateProfile = async (data: { name?: string; email?: string; phone?: string }) => {
+  const updateProfile = async (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => {
     const res = await api.auth.updateProfile(data);
     setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
   };

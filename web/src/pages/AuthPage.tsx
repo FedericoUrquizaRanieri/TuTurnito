@@ -22,12 +22,18 @@ export const AuthPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Back to where the user came from (e.g. joining an open match), only
+  // for in-app paths; otherwise each role's home.
+  const redirect = searchParams.get('redirect');
+  const goAfterAuth = (u: { role: string }) => {
+    if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) navigate(redirect);
+    else if (u.role === 'DUEÑO') navigate('/owner');
+    else if (u.role === 'PROFESOR') navigate('/professor');
+    else navigate('/');
+  };
+
   useEffect(() => {
-    if (user) {
-      if (user.role === 'DUEÑO') navigate('/owner');
-      else if (user.role === 'PROFESOR') navigate('/professor');
-      else navigate('/');
-    }
+    if (user) goAfterAuth(user);
   }, [user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -38,14 +44,10 @@ export const AuthPage: React.FC = () => {
     try {
       if (mode === 'login') {
         const u = await login(email, password);
-        if (u.role === 'DUEÑO') navigate('/owner');
-        else if (u.role === 'PROFESOR') navigate('/professor');
-        else navigate('/');
+        goAfterAuth(u);
       } else {
         const u = await register({ name, email, password, phone, role });
-        if (u.role === 'DUEÑO') navigate('/owner');
-        else if (u.role === 'PROFESOR') navigate('/professor');
-        else navigate('/');
+        goAfterAuth(u);
       }
     } catch (err: any) {
       setError(err.message || 'Error al procesar la solicitud');
@@ -59,9 +61,7 @@ export const AuthPage: React.FC = () => {
     setError(null);
     try {
       const u = await loginDemo(demoRole);
-      if (u.role === 'DUEÑO') navigate('/owner');
-      else if (u.role === 'PROFESOR') navigate('/professor');
-      else navigate('/');
+      goAfterAuth(u);
     } catch (err: any) {
       setError(err.message || 'Error con cuenta demo');
     } finally {

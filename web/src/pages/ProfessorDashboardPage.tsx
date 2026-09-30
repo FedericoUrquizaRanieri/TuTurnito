@@ -1,18 +1,21 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
-import { Users, Plus, Building, ShieldAlert } from 'lucide-react';
+import { Users, Plus, Building, ShieldAlert, BarChart3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { ComplexClassSchedules } from '../components/professor/ComplexClassSchedules';
 import { WeeklyClassGrid } from '../components/professor/WeeklyClassGrid';
 import type { ClassSchedule, Complex, ProfessorRequest, StudentWithBalance, WeeklyClass } from '../types';
 
+
+// Charts library only loads when the tab is opened.
+const ProfessorAnalyticsPanel = lazy(() => import('../components/professor/ProfessorAnalyticsPanel').then((m) => ({ default: m.ProfessorAnalyticsPanel })));
 export const ProfessorDashboardPage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState<'COMPLEXES' | 'STUDENTS'>('COMPLEXES');
+  const [activeTab, setActiveTab] = useState<'COMPLEXES' | 'STUDENTS' | 'ANALYTICS'>('COMPLEXES');
 
   // Mis complejos: linked complexes, sent requests and class schedules
   const [approvedComplexes, setApprovedComplexes] = useState<Complex[]>([]);
@@ -125,12 +128,26 @@ export const ProfessorDashboardPage: React.FC = () => {
               <Users size={16} />
               <span>Alumnos ({students.length})</span>
             </button>
+
+            <button
+              className={`tab-btn ${activeTab === 'ANALYTICS' ? 'active' : ''}`}
+              onClick={() => setActiveTab('ANALYTICS')}
+            >
+              <BarChart3 size={16} />
+              <span>Analíticas</span>
+            </button>
           </div>
         </div>
       </section>
 
       {/* Main Tab Content */}
       <section className="container" style={{ paddingTop: '2rem' }}>
+        {activeTab === 'ANALYTICS' && (
+          <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--text-muted)' }}>Cargando analíticas...</div>}>
+            <ProfessorAnalyticsPanel />
+          </Suspense>
+        )}
+
         {/* TAB 1: MIS COMPLEJOS — linked complexes and their class schedules */}
         {activeTab === 'COMPLEXES' && (
           <div>

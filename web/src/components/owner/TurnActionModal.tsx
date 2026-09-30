@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Lock, Unlock, Trophy, Sparkles, Trash2, Repeat, GraduationCap, Phone, Check } from 'lucide-react';
+import { X, Lock, Unlock, Trophy, Sparkles, Trash2, Repeat, GraduationCap, Phone, Check, Users } from 'lucide-react';
 import { api } from '../../api/client';
 import { Banner } from '../Banner';
 import { PaymentStatusBadge } from '../PaymentStatusBadge';
@@ -145,6 +145,20 @@ export const TurnActionModal: React.FC<TurnActionModalProps> = ({ complexId, tur
               )}
               {reservation.notes && (
                 <div style={{ color: 'var(--text-muted)', fontSize: '0.8rem', marginTop: '0.4rem' }}>“{reservation.notes}”</div>
+              )}
+              {reservation.openMatch && (
+                <div style={{ marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid var(--border-subtle)', fontSize: '0.8rem' }}>
+                  <div style={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                    <Users size={13} color="var(--accent-secondary)" />
+                    Partido abierto {reservation.openMatch.joinedCount}/{reservation.openMatch.spots}
+                    {reservation.openMatch.category && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>· {reservation.openMatch.category}</span>}
+                  </div>
+                  {reservation.openMatch.players.length > 0 && (
+                    <div style={{ color: 'var(--text-muted)', marginTop: '0.2rem' }}>
+                      Se sumaron: {reservation.openMatch.players.map((p) => p.name).join(', ')}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

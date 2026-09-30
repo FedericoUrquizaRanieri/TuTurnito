@@ -9,6 +9,7 @@ export const ProfilePage: React.FC = () => {
   const [name, setName] = useState(user?.name || '');
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [emailReminders, setEmailReminders] = useState(user?.emailReminders ?? true);
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -19,7 +20,7 @@ export const ProfilePage: React.FC = () => {
     setMessage(null);
 
     try {
-      await updateProfile({ name, email, phone });
+      await updateProfile({ name, email, phone, emailReminders });
       setMessage({ type: 'success', text: 'Perfil actualizado exitosamente.' });
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
@@ -94,6 +95,21 @@ export const ProfilePage: React.FC = () => {
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
             />
+          </div>
+
+          <div className="form-group">
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={emailReminders}
+                onChange={(e) => setEmailReminders(e.target.checked)}
+                style={{ accentColor: 'var(--accent-primary)', width: '18px', height: '18px', marginTop: '0.1rem' }}
+              />
+              <span>
+                <span style={{ fontWeight: 600, display: 'block' }}>Recibir recordatorios por email</span>
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Te avisamos el día anterior a cada partido, con el horario y hasta cuándo podés cancelar.</span>
+              </span>
+            </label>
           </div>
 
           <div className="form-group">

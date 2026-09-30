@@ -3,13 +3,16 @@ import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../api/client';
 import { X, Calendar, Clock, DollarSign, CheckCircle, AlertCircle, Sparkles, GraduationCap, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import type { Turn } from '../types';
+import type { Turn, OpenMatchInput } from '../types';
+import { OpenMatchFields } from './openMatch/OpenMatchFields';
 
 interface ReservationModalProps {
   turn: Turn;
   complexName: string;
   complexId: string;
   isApprovedProfessor?: boolean;
+  /** Players can cancel from the app up to this many hours before (0 = until it starts). */
+  cancellationHours?: number;
   onSuccess: () => void;
   onClose: () => void;
 }
@@ -18,6 +21,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   turn,
   complexName,
   isApprovedProfessor = false,
+  cancellationHours = 0,
   onSuccess,
   onClose,
 }) => {
@@ -29,6 +33,8 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   const [guestEmail, setGuestEmail] = useState(user?.email || '');
   const [isClass, setIsClass] = useState(isApprovedProfessor && user?.role === 'PROFESOR');
   const [notes, setNotes] = useState('');
+  const [wantsPlayers, setWantsPlayers] = useState(false);
+  const [openMatch, setOpenMatch] = useState<OpenMatchInput>({ spots: 1, category: null, notes: '' });
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +57,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
         guestEmail: guestEmail || undefined,
         type: isClass ? 'CLASS' : 'PLAYER',
         notes: notes || undefined,
+        openMatch: user && !isClass && wantsPlayers ? { ...openMatch, notes: openMatch.notes?.trim() || null } : undefined,
       });
 
       setConfirmed(true);
@@ -229,6 +236,33 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 />
               </div>
 
+              {user && !isClass && (
+                <div style={{
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: 'var(--radius-md)',
+                  padding: '0.75rem 1rem',
+                  marginBottom: '1.25rem',
+                }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={wantsPlayers}
+                      onChange={(e) => setWantsPlayers(e.target.checked)}
+                      style={{ accentColor: 'var(--accent-secondary)', width: '16px', height: '16px' }}
+                    />
+                    <span style={{ fontWeight: 700, fontSize: '0.875rem' }}>Me faltan jugadores</span>
+                  </label>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.25rem 0 0 1.5rem' }}>
+                    Publicamos tu partido en “Partidos abiertos” y te avisamos por email cuando se sume alguien.
+                  </div>
+                  {wantsPlayers && (
+                    <div style={{ marginTop: '0.85rem' }}>
+                      <OpenMatchFields value={openMatch} onChange={setOpenMatch} />
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={{
                 display: 'flex',
                 alignItems: 'flex-start',
@@ -242,7 +276,12 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 lineHeight: 1.4,
               }}>
                 <Info size={14} style={{ flexShrink: 0, marginTop: '0.1rem' }} />
-                <span>La reserva es libre e inmediata. El cobro se hace directamente en el complejo.</span>
+                <span>
+                  La reserva es libre e inmediata. El cobro se hace directamente en el complejo.{' '}
+                  {cancellationHours > 0
+                    ? `Podés cancelar desde la app hasta ${cancellationHours} h antes del turno.`
+                    : 'Podés cancelar desde la app hasta que empiece el turno.'}
+                </span>
               </div>
 
               <div style={{ display: 'flex', gap: '0.75rem' }}>
