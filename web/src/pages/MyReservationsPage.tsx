@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock, MapPin, DollarSign, Trash2, Trophy, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -40,6 +41,7 @@ const Pagination: React.FC<{ page: number; totalPages: number; onChange: (page: 
 
 export const MyReservationsPage: React.FC = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -52,7 +54,7 @@ export const MyReservationsPage: React.FC = () => {
       const res = await api.reservations.getMyReservations();
       setReservations(res.reservations || []);
     } catch (err) {
-      console.error(err);
+      toast.error(err, 'No se pudieron cargar tus reservas.');
     } finally {
       setLoading(false);
     }

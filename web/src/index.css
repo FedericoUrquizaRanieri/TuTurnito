@@ -1057,3 +1057,79 @@ button {
   font-size: 1.05rem;
   font-weight: 800;
 }
+
+/* Toasts: app-wide notices (errors without an inline place, confirmations) */
+.toast-stack {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 200; /* above modals */
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-subtle);
+  border-left: 4px solid var(--toast-color);
+  box-shadow: var(--shadow-md);
+  color: var(--text-main);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toast-error { --toast-color: var(--status-blocked); }
+.toast-success { --toast-color: var(--status-available); }
+.toast-info { --toast-color: var(--accent-primary); }
+
+.toast-icon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  color: var(--toast-color);
+}
+
+.toast-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.toast-action {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 700;
+  font-size: var(--text-xs);
+  color: var(--accent-secondary);
+}
+
+.toast-action:hover { color: var(--accent-secondary-hover); }
+
+.toast-close {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+  padding: 0.1rem;
+}
+
+.toast-close:hover { color: var(--text-main); }
+
+@media (max-width: 640px) {
+  .toast-stack {
+    right: 1rem;
+    left: 1rem;
+    bottom: 1rem;
+    width: auto;
+  }
+}

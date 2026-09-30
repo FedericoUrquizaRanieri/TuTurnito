@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
 import { OwnerReservationGrid } from '../components/owner/OwnerReservationGrid';
 import { FixedBookingsPanel } from '../components/owner/FixedBookingsPanel';
@@ -28,6 +29,7 @@ import { todayStr, weekRange, shortDateLabel } from '../lib/dates';
 
 export const OwnerDashboardPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
+  const toast = useToast();
 
   const [activeTab, setActiveTab] = useState<'RESERVATIONS' | 'PROFESSORS' | 'SETTINGS'>('RESERVATIONS');
   const [selectedComplexId, setSelectedComplexId] = useState<string>('');
@@ -85,7 +87,7 @@ export const OwnerDashboardPage: React.FC = () => {
         setSelectedComplexId(owned[0].id);
       }
     } catch (err) {
-      console.error('Error fetching complexes:', err);
+      toast.error(err, 'No se pudieron cargar tus complejos.');
     }
   };
 
@@ -112,7 +114,7 @@ export const OwnerDashboardPage: React.FC = () => {
           imageUrl: res.complex.imageUrl || '',
         });
       } catch (err) {
-        console.error(err);
+        toast.error(err, 'No se pudieron cargar los datos del complejo.');
       }
     };
 
@@ -129,7 +131,7 @@ export const OwnerDashboardPage: React.FC = () => {
       setCourts(res.courts || []);
       setFixedBookings(res.fixedBookings || []);
     } catch (err) {
-      console.error('Error loading courts:', err);
+      toast.error(err, 'No se pudieron cargar las canchas.');
     }
   };
 
@@ -139,9 +141,9 @@ export const OwnerDashboardPage: React.FC = () => {
       const res = await api.reservations.getComplexReservations(selectedComplexId, { from: week.from, to: week.to });
       setWeekStats(res.stats || { totalReservations: 0, totalCollected: 0, totalPending: 0 });
     } catch (err) {
-      console.error('Error loading weekly payments:', err);
+      toast.error(err, 'No se pudieron cargar los cobros de la semana.');
     }
-  }, [selectedComplexId, week.from, week.to]);
+  }, [selectedComplexId, week.from, week.to, toast]);
 
   // Courts or fixed bookings changed: reload them, the grid and the totals.
   const handleConfigChanged = () => {
@@ -157,7 +159,7 @@ export const OwnerDashboardPage: React.FC = () => {
       const res = await api.professors.getComplexRequests(selectedComplexId);
       setProfRequests(res.requests || []);
     } catch (err) {
-      console.error('Error loading professor requests:', err);
+      toast.error(err, 'No se pudieron cargar las solicitudes de profesores.');
     } finally {
       setLoadingProfRequests(false);
     }
@@ -170,8 +172,9 @@ export const OwnerDashboardPage: React.FC = () => {
       await refreshUser();
       await fetchOwnerComplexes();
       setSelectedComplexId(res.complex.id);
-    } catch (err: any) {
-      alert(err.message || 'Error al crear complejo');
+      toast.success(`Complejo "${res.complex.name}" creado.`);
+    } catch (err) {
+      toast.error(err, 'No se pudo crear el complejo.');
     }
   };
 
@@ -179,8 +182,9 @@ export const OwnerDashboardPage: React.FC = () => {
     try {
       await api.professors.resolveRequest(selectedComplexId, requestId, status);
       loadProfessorRequests();
-    } catch (err: any) {
-      alert(err.message || 'Error al resolver solicitud');
+      toast.success(status === 'APPROVED' ? 'Profesor aprobado.' : 'Solicitud rechazada.');
+    } catch (err) {
+      toast.error(err, 'No se pudo resolver la solicitud.');
     }
   };
 
@@ -194,8 +198,8 @@ export const OwnerDashboardPage: React.FC = () => {
       setSettingsSuccess(true);
       setTimeout(() => setSettingsSuccess(false), 3000);
       fetchOwnerComplexes();
-    } catch (err: any) {
-      alert(err.message || 'Error al guardar datos');
+    } catch (err) {
+      toast.error(err, 'No se pudieron guardar los datos del complejo.');
     } finally {
       setSavingSettings(false);
     }

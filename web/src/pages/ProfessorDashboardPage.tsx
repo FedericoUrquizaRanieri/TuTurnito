@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
 import { Users, Plus, Building, ShieldAlert } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -10,6 +11,7 @@ import type { ClassSchedule, Complex, ProfessorRequest, StudentWithBalance, Week
 
 export const ProfessorDashboardPage: React.FC = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<'COMPLEXES' | 'STUDENTS'>('COMPLEXES');
 
   // Mis complejos: linked complexes, sent requests and class schedules
@@ -34,11 +36,11 @@ export const ProfessorDashboardPage: React.FC = () => {
       setRequests(complexesRes.requests || []);
       setSchedules(schedulesRes.schedules || []);
     } catch (err) {
-      console.error(err);
+      toast.error(err, 'No se pudieron cargar tus complejos y horarios.');
     } finally {
       setLoadingComplexes(false);
     }
-  }, []);
+  }, [toast]);
 
   const loadClasses = useCallback(async () => {
     setLoadingClasses(true);
@@ -47,11 +49,11 @@ export const ProfessorDashboardPage: React.FC = () => {
       setClasses(res.classes || []);
       setStudents(res.students || []);
     } catch (err) {
-      console.error(err);
+      toast.error(err, 'No se pudieron cargar tus clases.');
     } finally {
       setLoadingClasses(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     if (user?.role !== 'PROFESOR') return;
