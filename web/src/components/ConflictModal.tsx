@@ -70,7 +70,7 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({ data, onResolve, o
   return (
     <div className="modal-overlay">
       <div className="modal-content" style={{ maxWidth: '620px' }} role="dialog" aria-modal="true" aria-labelledby="conflict-title">
-        <button onClick={onClose} aria-label="Cerrar" style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', color: 'var(--text-muted)' }}>
+        <button onClick={onClose} aria-label="Cerrar" className="icon-btn modal-close">
           <X size={20} />
         </button>
 

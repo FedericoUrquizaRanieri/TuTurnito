@@ -115,7 +115,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '520px' }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button onClick={onClose} aria-label="Cerrar" style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', color: 'var(--text-muted)' }}>
+        <button onClick={onClose} aria-label="Cerrar" className="icon-btn modal-close">
           <X size={20} />
         </button>
 
@@ -226,7 +226,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
                         disabled={busy}
                         aria-label="Eliminar cobro"
                         title="Eliminar cobro"
-                        style={{ color: 'var(--text-subtle)', padding: '0.1rem' }}
+                        className="icon-btn"
                       >
                         <Trash2 size={12} />
                       </button>
@@ -237,8 +237,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
                         disabled={busy}
                         aria-label={`Marcar ausente el ${shortDateLabel(m.date)}`}
                         title="Marcar ausente: esta clase no se cobra"
-                        className="badge badge-blocked"
-                        style={{ cursor: 'pointer', fontSize: '0.62rem', padding: '0.1rem 0.35rem' }}
+                        className="badge badge-blocked badge-btn"
                       >
                         Ausente
                       </button>
@@ -249,7 +248,7 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
                         disabled={busy}
                         aria-label={`Deshacer ausencia del ${shortDateLabel(m.date)}`}
                         title="Deshacer ausencia"
-                        style={{ color: 'var(--text-subtle)', padding: '0.1rem' }}
+                        className="icon-btn"
                       >
                         <Undo2 size={12} />
                       </button>

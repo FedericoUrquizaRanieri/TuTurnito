@@ -281,6 +281,18 @@ export const Navbar: React.FC = () => {
 
           <div className="hairline" />
 
+          {user && (
+            <Link
+              to="/profile"
+              onClick={() => setMobileOpen(false)}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 0', fontWeight: 600, color: 'var(--text-main)' }}
+            >
+              <UserIcon size={16} />
+              Mi perfil
+              <span style={{ color: 'var(--text-subtle)', fontWeight: 500, fontSize: '0.85rem' }}>· {user.name}</span>
+            </Link>
+          )}
+
           {user ? (
             <button
               onClick={() => { setMobileOpen(false); handleLogout(); }}
