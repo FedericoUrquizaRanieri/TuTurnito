@@ -130,6 +130,43 @@ export function slotsWithin(
   });
 }
 
+type PriceRuleLike = { courtId: string | null; daysOfWeek: number[]; startTime: string; endTime: string; price: number };
+
+/**
+ * Price of a court's turn on a date: the price rule that covers its weekday
+ * and start time (a rule for that court wins over one for every court), or
+ * the court's base price when no rule applies.
+ */
+export function resolvePrice(
+  court: { id: string; basePrice: number },
+  dateStr: string,
+  slotStart: string,
+  rules: PriceRuleLike[]
+): number {
+  const { dayOfWeek } = parseDateString(dateStr);
+  const start = toMinutes(slotStart);
+  const matching = rules.filter(
+    (r) =>
+      (r.courtId === null || r.courtId === court.id) &&
+      r.daysOfWeek.includes(dayOfWeek) &&
+      start >= toMinutes(r.startTime) &&
+      start < toMinutes(r.endTime)
+  );
+  const rule = matching.find((r) => r.courtId === court.id) ?? matching.find((r) => r.courtId === null);
+  return rule ? rule.price : court.basePrice;
+}
+
+/** A turn's rule price, loading the complex's price rules (for one-off checks outside the generator). */
+export async function priceForTurn(
+  court: { id: string; complexId: string; basePrice: number },
+  dateStr: string,
+  slotStart: string,
+  client: DbClient = prisma
+): Promise<number> {
+  const rules = await client.priceRule.findMany({ where: { complexId: court.complexId } });
+  return resolvePrice(court, dateStr, slotStart, rules);
+}
+
 /**
  * Materializes every active professor class schedule in the range as CLASS
  * reservations (one per turn inside the schedule's time window, on its
@@ -294,21 +331,32 @@ export async function ensureTurnsForRange(
       },
     });
 
+    // Closures (holidays, maintenance) block every court on their days.
+    const closures = await client.closure.findMany({
+      where: { complexId, startDate: { lte: toDateStr }, endDate: { gte: genFrom } },
+    });
+    const closureOn = (dateStr: string) => closures.find((c) => c.startDate <= dateStr && c.endDate >= dateStr);
+    const priceRules = await client.priceRule.findMany({ where: { complexId } });
+
     const existingMap = new Map<string, typeof existingTurns[0]>();
     for (const t of existingTurns) {
       existingMap.set(`${t.courtId}_${t.date}_${t.startTime}`, t);
     }
 
-    const toCreate: { courtId: string; date: string; startTime: string; endTime: string; price: number }[] = [];
+    const toCreate: Prisma.TurnCreateManyInput[] = [];
     const toUpdate: { id: string; price: number; endTime: string }[] = [];
+    const toClose: { id: string; closureId: string; reason: string }[] = [];
+    const toReopen: { id: string; closureId: string }[] = [];
     const validKeys = new Set<string>();
 
     for (const dateStr of dates) {
+      const closure = closureOn(dateStr);
       for (const court of courts) {
         for (const slot of buildCourtSlots(court)) {
           const key = `${court.id}_${dateStr}_${slot.start}`;
           validKeys.add(key);
           const existing = existingMap.get(key);
+          const price = resolvePrice(court, dateStr, slot.start, priceRules);
 
           if (!existing) {
             toCreate.push({
@@ -316,14 +364,27 @@ export async function ensureTurnsForRange(
               date: dateStr,
               startTime: slot.start,
               endTime: slot.end,
-              price: court.basePrice,
+              price,
+              ...(closure ? { state: 'BLOCKED' as const, label: closure.reason, closureId: closure.id } : {}),
             });
-          } else if (
+            continue;
+          }
+
+          // A free turn on a closed day gets blocked; a turn blocked by a
+          // closure that no longer covers it (deleted) is freed again. Turns
+          // the owner blocked or marked as tournament by hand stay as they are.
+          if (closure && existing.closureId !== closure.id && (existing.state === 'AVAILABLE' || existing.closureId)) {
+            toClose.push({ id: existing.id, closureId: closure.id, reason: closure.reason });
+          } else if (!closure && existing.closureId) {
+            toReopen.push({ id: existing.id, closureId: existing.closureId });
+          }
+
+          if (
             existing.state !== 'OCCUPIED' &&
             !existing.manualOverride &&
-            (existing.price !== court.basePrice || existing.endTime !== slot.end)
+            (existing.price !== price || existing.endTime !== slot.end)
           ) {
-            toUpdate.push({ id: existing.id, price: court.basePrice, endTime: slot.end });
+            toUpdate.push({ id: existing.id, price, endTime: slot.end });
           }
         }
       }
@@ -342,6 +403,19 @@ export async function ensureTurnsForRange(
     const writeTurns = async (tx: Prisma.TransactionClient) => {
       if (toCreate.length > 0) {
         await tx.turn.createMany({ data: toCreate, skipDuplicates: true });
+      }
+
+      for (const c of toClose) {
+        await tx.turn.updateMany({
+          where: { id: c.id, state: { not: 'OCCUPIED' } },
+          data: { state: 'BLOCKED', label: c.reason, closureId: c.closureId },
+        });
+      }
+      for (const r of toReopen) {
+        await tx.turn.updateMany({
+          where: { id: r.id, closureId: r.closureId },
+          data: { state: 'AVAILABLE', label: null, closureId: null },
+        });
       }
 
       for (const u of toUpdate) {
@@ -544,7 +618,7 @@ export async function saveComplexCourts(complexId: string, payload: CourtsUpdate
       // deleted by the re-sync, which then removes the now-free turns).
       const toRelease = resolveConflicts === 'CANCEL' ? conflicts : deletionConflicts;
       for (const c of toRelease) {
-        await releaseReservationTx(tx, { id: c.reservationId, turnId: c.turnId });
+        await releaseReservationTx(tx, { id: c.reservationId, turnId: c.turnId }, { cancelledBy: 'OWNER' });
       }
 
       if (courtsToDelete.length > 0) {

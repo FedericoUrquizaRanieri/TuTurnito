@@ -224,7 +224,7 @@ export async function deleteClassSchedule(professorId: string, classScheduleId: 
     });
     for (const r of upcoming) {
       if (hasStarted(r.turn.date, r.turn.startTime, now)) continue;
-      await releaseReservationTx(tx, r, { manualOverride: false });
+      await releaseReservationTx(tx, r, { manualOverride: false, cancelledBy: 'PROFESSOR' });
     }
 
     await closeEnrollmentsTx(tx, { classScheduleId }, now);

@@ -25,6 +25,8 @@ const complexSchema = z.object({
 // always derived from the name.
 const complexUpdateSchema = complexSchema.partial().extend({
   slug: z.string().trim().toLowerCase().optional(),
+  // Players can cancel from the app up to this many hours before the turn (0 = until it starts).
+  cancellationHours: z.number().int().min(0, 'Las horas no pueden ser negativas').max(72, 'Como máximo 72 horas').optional(),
 });
 
 // GET /api/complexes (Public catalog with search & filters)
@@ -59,12 +61,14 @@ router.get(
           where: { active: true },
           select: { basePrice: true },
         },
+        priceRules: { select: { price: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
 
     const formatted = complexes.map((c) => {
-      const allPrices = c.courts.map((court) => court.basePrice);
+      // Price rules (peak hours, promos) widen the range beyond the base prices.
+      const allPrices = [...c.courts.map((court) => court.basePrice), ...(c.courts.length ? c.priceRules.map((r) => r.price) : [])];
       const minPrice = allPrices.length > 0 ? Math.min(...allPrices) : null;
       const maxPrice = allPrices.length > 0 ? Math.max(...allPrices) : null;
 
@@ -191,6 +195,7 @@ router.put(
         ...(data.imageUrl !== undefined ? { imageUrl: data.imageUrl?.trim() || null } : {}),
         ...(data.timezone ? { timezone: data.timezone } : {}),
         ...(data.slug ? { slug: data.slug } : {}),
+        ...(data.cancellationHours !== undefined ? { cancellationHours: data.cancellationHours } : {}),
       },
     });
 

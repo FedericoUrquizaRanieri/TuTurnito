@@ -30,6 +30,7 @@ const updateProfileSchema = z.object({
   name: z.string().min(2).optional(),
   email: z.string().email().optional(),
   phone: z.string().optional(),
+  emailReminders: z.boolean().optional(),
 });
 
 function createToken(payload: UserPayload): string {
@@ -93,6 +94,7 @@ router.post(
         email: newUser.email,
         phone: newUser.phone,
         role: newUser.role,
+        emailReminders: newUser.emailReminders,
       },
       token,
     });
@@ -142,6 +144,7 @@ router.post(
         email: user.email,
         phone: user.phone,
         role: user.role,
+        emailReminders: user.emailReminders,
         ownedComplexes: user.ownedComplexes,
         linkedComplexes: user.complexLinks.map((l) => l.complex),
       },
@@ -181,6 +184,7 @@ router.get(
         email: user.email,
         phone: user.phone,
         role: user.role,
+        emailReminders: user.emailReminders,
         ownedComplexes: user.ownedComplexes,
         linkedComplexes: user.complexLinks.map((l) => l.complex),
         professorRequests: user.professorRequests,
@@ -195,7 +199,7 @@ router.put(
   requireAuth,
   validate(updateProfileSchema),
   asyncHandler(async (req: Request, res: Response) => {
-    const { name, email, phone } = req.body;
+    const { name, email, phone, emailReminders } = req.body;
     const userId = req.user!.id;
 
     if (email) {
@@ -212,6 +216,7 @@ router.put(
         ...(name ? { name: name.trim() } : {}),
         ...(email ? { email: email.trim().toLowerCase() } : {}),
         ...(phone !== undefined ? { phone: phone?.trim() || null } : {}),
+        ...(emailReminders !== undefined ? { emailReminders } : {}),
       },
     });
 
@@ -223,6 +228,7 @@ router.put(
         email: updatedUser.email,
         phone: updatedUser.phone,
         role: updatedUser.role,
+        emailReminders: updatedUser.emailReminders,
       },
     });
   }, 'Error al actualizar perfil.')

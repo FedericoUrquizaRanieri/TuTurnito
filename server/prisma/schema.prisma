@@ -35,6 +35,12 @@ enum PayableType {
   STUDENT_CLASS
 }
 
+enum CancelledBy {
+  PLAYER
+  OWNER
+  PROFESSOR
+}
+
 enum ProfessorRequestStatus {
   PENDING
   APPROVED
@@ -48,6 +54,7 @@ model User {
   name         String
   phone        String?
   role         Role
+  emailReminders Boolean @default(true) // recordatorio por email antes de cada turno
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -60,6 +67,8 @@ model User {
   complexLinks      ProfessorComplex[] @relation("ProfessorComplexLinks")
   students          Student[]          @relation("ProfessorStudents")
   classSchedules    ClassSchedule[]    @relation("ProfessorClassSchedules")
+  organizedMatches  OpenMatch[]        @relation("OpenMatchOrganizer")
+  joinedMatches     MatchPlayer[]
 }
 
 model Complex {
@@ -72,6 +81,9 @@ model Complex {
   phone        String?
   openingHours String?   // ej: "Lun a Dom 08:00 - 23:30"
   timezone     String    @default("America/Argentina/Buenos_Aires")
+  // Política de cancelación: el jugador puede cancelar desde la app hasta
+  // estas horas antes del turno (0 = hasta que empieza). El dueño, siempre.
+  cancellationHours Int  @default(0)
   imageUrl     String?
   ownerId      String
   owner        User      @relation("OwnerComplexes", fields: [ownerId], references: [id], onDelete: Cascade)
@@ -85,6 +97,9 @@ model Complex {
   professorLinks    ProfessorComplex[]
   fixedBookings     FixedBooking[]
   classSchedules    ClassSchedule[]
+  closures          Closure[]
+  priceRules        PriceRule[]
+  cancellations     ReservationCancellation[]
 }
 
 model Court {
@@ -106,6 +121,7 @@ model Court {
   turns          Turn[]
   fixedBookings  FixedBooking[]
   classSchedules ClassSchedule[]
+  priceRules     PriceRule[]
 }
 
 model Turn {
@@ -121,6 +137,10 @@ model Turn {
   // ocurrencia de un turno fijo): la sincronización automática no lo pisa.
   manualOverride Boolean @default(false)
   label        String?   // Nombre del torneo / nota del dueño
+  // Cierre (feriado, mantenimiento) que bloqueó este turno. Sin relación a
+  // propósito: al borrar el cierre la re-sincronización ve que ya no existe
+  // y libera el turno.
+  closureId    String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -148,8 +168,13 @@ model Reservation {
   fixedBooking   FixedBooking? @relation(fields: [fixedBookingId], references: [id], onDelete: SetNull)
   classScheduleId String?
   classSchedule   ClassSchedule? @relation(fields: [classScheduleId], references: [id], onDelete: SetNull)
+  // Cuándo se mandó el recordatorio por email (null = todavía no). Se
+  // reclama antes de mandar, así dos servidores no lo mandan dos veces.
+  reminderSentAt  DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
+
+  openMatch   OpenMatch?
 }
 
 // Turno fijo: mismo día y horario todas las semanas. Cada ocurrencia se
@@ -172,6 +197,93 @@ model FixedBooking {
   updatedAt  DateTime @updatedAt
 
   reservations Reservation[]
+}
+
+// Cierre del complejo (feriado, mantenimiento, evento): todas las canchas
+// quedan bloqueadas desde startDate hasta endDate (inclusive). Los turnos de
+// esos días se crean/pasan a BLOCKED con su closureId, así que ni los turnos
+// fijos ni las clases se materializan ahí.
+model Closure {
+  id        String   @id @default(uuid())
+  complexId String
+  complex   Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  startDate String   // "YYYY-MM-DD"
+  endDate   String   // "YYYY-MM-DD" (inclusive)
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([complexId, startDate])
+}
+
+// Precio por franja: los turnos que empiezan en [startTime, endTime) de esos
+// días cuestan `price` en vez del basePrice de la cancha. Una regla de una
+// cancha puntual gana sobre una de todas las canchas (courtId null).
+model PriceRule {
+  id         String   @id @default(uuid())
+  complexId  String
+  complex    Complex  @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  courtId    String?
+  court      Court?   @relation(fields: [courtId], references: [id], onDelete: Cascade)
+  daysOfWeek Int[]    // 0 = Domingo ... 6 = Sábado
+  startTime  String   // "HH:MM"
+  endTime    String   // "HH:MM" (exclusivo; "24:00" = hasta el cierre)
+  price      Float
+  label      String?  // ej: "Hora pico", "Promo mañana"
+  createdAt  DateTime @default(now())
+
+  @@index([complexId])
+}
+
+// Registro de cada reserva cancelada (la reserva y su pago se borran al
+// cancelar). Alimenta las analíticas: cuántas, con cuánta anticipación y
+// quién canceló.
+model ReservationCancellation {
+  id             String          @id @default(uuid())
+  complexId      String
+  complex        Complex         @relation(fields: [complexId], references: [id], onDelete: Cascade)
+  courtId        String
+  date           String          // "YYYY-MM-DD" del turno
+  startTime      String          // "HH:MM"
+  price          Float
+  type           ReservationType
+  wasFixed       Boolean         @default(false)
+  guestName      String
+  guestPhone     String
+  cancelledBy    CancelledBy
+  minutesBefore  Int             // minutos entre la cancelación y el inicio del turno
+  cancelledAt    DateTime        @default(now())
+
+  @@index([complexId, date])
+}
+
+// Partido abierto: quien reservó publica que le faltan jugadores y otros
+// usuarios se suman directo hasta completar los lugares. Se borra con la
+// reserva.
+model OpenMatch {
+  id            String        @id @default(uuid())
+  reservationId String        @unique
+  reservation   Reservation   @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+  organizerId   String
+  organizer     User          @relation("OpenMatchOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
+  spots         Int           // jugadores que faltan (1–3)
+  joinedCount   Int           @default(0) // se incrementa con un update condicionado: nunca supera `spots`
+  category      String?       // "Principiante", "Intermedio", "Avanzado", "1ra".."8va"
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  players MatchPlayer[]
+}
+
+model MatchPlayer {
+  id          String    @id @default(uuid())
+  openMatchId String
+  openMatch   OpenMatch @relation(fields: [openMatchId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime  @default(now())
+
+  @@unique([openMatchId, userId])
 }
 
 model Payment {

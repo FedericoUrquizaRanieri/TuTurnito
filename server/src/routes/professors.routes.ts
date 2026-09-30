@@ -32,8 +32,13 @@ import {
   enrollmentUpdateSchema,
   studentPaymentSchema,
 } from '../services/classSchedule.service';
+import { getProfessorAnalytics } from '../services/analytics.service';
+import { HttpError } from '../middleware/HttpError';
 
 const router = Router();
+
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_ANALYTICS_RANGE_DAYS = 366;
 
 const studentSchema = z.object({
   name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
@@ -194,6 +199,27 @@ router.get(
     const data = await getWeeklyClasses(req.user!.id);
     return res.json(data);
   }, 'Error al obtener la grilla de clases.')
+);
+
+// GET /api/professors/analytics?from&to (income, court cost, attendance, occupancy, students; up to a year)
+router.get(
+  '/analytics',
+  ...professorOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { from, to } = req.query;
+    if (typeof from !== 'string' || !DATE_REGEX.test(from) || typeof to !== 'string' || !DATE_REGEX.test(to)) {
+      throw new HttpError(400, 'Los parámetros "from" y "to" deben tener formato YYYY-MM-DD.');
+    }
+    if (to < from) {
+      throw new HttpError(400, 'El parámetro "to" no puede ser anterior a "from".');
+    }
+    const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24);
+    if (rangeDays > MAX_ANALYTICS_RANGE_DAYS) {
+      throw new HttpError(400, `El rango de fechas no puede superar los ${MAX_ANALYTICS_RANGE_DAYS} días.`);
+    }
+    const analytics = await getProfessorAnalytics(req.user!.id, from, to);
+    return res.json(analytics);
+  }, 'Error al calcular las analíticas.')
 );
 
 // POST /api/professors/enrollments (Add a student, existing or new, to a class)
