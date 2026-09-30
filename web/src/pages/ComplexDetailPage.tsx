@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { api, ApiError } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { ScheduleGrid, PublicTurnData } from '../components/ScheduleGrid';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { DatePillStrip } from '../components/DatePillStrip';
@@ -27,6 +28,7 @@ export const ComplexDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const toast = useToast();
 
   const [complex, setComplex] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,7 +89,7 @@ export const ComplexDetailPage: React.FC = () => {
       const res = await api.turns.getByDateRange(id, selectedDate, selectedDate);
       setTurns(res.turns || []);
     } catch (err) {
-      console.error('Error fetching turns:', err);
+      toast.error(err, 'No se pudieron cargar los turnos de esta fecha.');
     } finally {
       setLoadingTurns(false);
     }
@@ -110,8 +112,9 @@ export const ComplexDetailPage: React.FC = () => {
     try {
       await api.professors.sendRequest(complex.id);
       setProfessorRequestSent(true);
-    } catch (err: any) {
-      alert(err.message || 'Error al enviar solicitud.');
+      toast.success('Solicitud enviada. El dueño del complejo tiene que aprobarla.');
+    } catch (err) {
+      toast.error(err, 'No se pudo enviar la solicitud.');
     } finally {
       setRequestLoading(false);
     }

@@ -47,16 +47,25 @@ router.put(
     const id = req.params.id as string;
     const result = await saveComplexCourts(id, req.body);
 
-    if ('hasConflicts' in result && result.hasConflicts) {
+    if ('hasConflicts' in result) {
       return res.status(409).json({
-        message: 'Existen reservas futuras afectadas por estos cambios.',
+        message:
+          result.conflictType === 'CLASS_SCHEDULES'
+            ? 'Hay horarios de clases de profesores en los turnos que cambian. El profesor tiene que quitarlos antes de modificar la cancha.'
+            : 'Existen reservas futuras o turnos fijos afectados por estos cambios.',
         hasConflicts: true,
         conflictType: result.conflictType,
         conflicts: result.conflicts,
+        classSchedules: result.classSchedules,
+        fixedBookings: result.fixedBookings,
       });
     }
 
-    return res.json({ message: 'Canchas guardadas y turnos actualizados exitosamente.', success: true });
+    return res.json({
+      message: 'Canchas guardadas y turnos actualizados exitosamente.',
+      success: true,
+      deactivatedFixedBookings: result.deactivatedFixedBookings,
+    });
   }, 'Error al guardar las canchas.')
 );
 

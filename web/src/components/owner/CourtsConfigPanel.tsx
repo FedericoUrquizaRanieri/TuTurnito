@@ -5,7 +5,8 @@ import type { CourtInput } from '../../api/client';
 import { Banner } from '../Banner';
 import { ConflictModal } from '../ConflictModal';
 import { buildCourtSlots } from '../../lib/slots';
-import type { Court, ScheduleConflict } from '../../types';
+import { DAY_NAMES } from '../../lib/dates';
+import type { Court, CourtsConflictData } from '../../types';
 
 interface CourtsConfigPanelProps {
   complexId: string;
@@ -41,7 +42,7 @@ export const CourtsConfigPanel: React.FC<CourtsConfigPanelProps> = ({ complexId,
   const [draft, setDraft] = useState<EditableCourt[]>(() => courts.map(toEditable));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [conflictData, setConflictData] = useState<{ conflictType: string; conflicts: ScheduleConflict[] } | null>(null);
+  const [conflictData, setConflictData] = useState<CourtsConflictData | null>(null);
 
   useEffect(() => {
     setDraft(courts.map(toEditable));
@@ -83,16 +84,29 @@ export const CourtsConfigPanel: React.FC<CourtsConfigPanelProps> = ({ complexId,
     setSaving(true);
     setMessage(null);
     try {
-      await api.schedules.saveCourts(complexId, {
+      const res = await api.schedules.saveCourts(complexId, {
         courts: draft.map(({ key: _key, ...c }, i) => ({ ...c, name: c.name.trim(), order: i, basePrice: Number(c.basePrice) })),
         ...(resolveConflicts ? { resolveConflicts } : {}),
       });
       setConflictData(null);
-      setMessage({ type: 'success', text: 'Canchas guardadas. La grilla ya refleja los nuevos horarios.' });
+      const ended = res.deactivatedFixedBookings || [];
+      setMessage({
+        type: 'success',
+        text:
+          'Canchas guardadas. La grilla ya refleja los nuevos horarios.' +
+          (ended.length > 0
+            ? ` Turnos fijos dados de baja: ${ended.map((f) => `${f.guestName} (${DAY_NAMES[f.dayOfWeek]} ${f.startTime})`).join(', ')}.`
+            : ''),
+      });
       onSaved();
     } catch (err: any) {
       if (err.status === 409 && err.data?.hasConflicts) {
-        setConflictData(err.data);
+        setConflictData({
+          conflictType: err.data.conflictType,
+          conflicts: err.data.conflicts || [],
+          classSchedules: err.data.classSchedules || [],
+          fixedBookings: err.data.fixedBookings || [],
+        });
       } else {
         setMessage({ type: 'error', text: err.message || 'Error al guardar las canchas.' });
       }
@@ -105,8 +119,7 @@ export const CourtsConfigPanel: React.FC<CourtsConfigPanelProps> = ({ complexId,
     <div className="card">
       {conflictData && (
         <ConflictModal
-          conflicts={conflictData.conflicts}
-          conflictType={conflictData.conflictType}
+          data={conflictData}
           loading={saving}
           onResolve={(decision) => handleSave(decision)}
           onClose={() => setConflictData(null)}

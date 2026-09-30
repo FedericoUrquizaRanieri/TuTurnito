@@ -1,6 +1,7 @@
 import prisma from '../prisma';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
+import { hasStarted, nowParts, today } from './clock';
 import { bookTurnTx, releaseReservationTx } from './booking';
 
 // Either the top-level PrismaClient or an interactive-transaction client
@@ -152,7 +153,9 @@ async function applyClassSchedules(tx: Prisma.TransactionClient, complexId: stri
     },
   });
 
+  const now = nowParts();
   for (const turn of candidates) {
+    if (hasStarted(turn.date, turn.startTime, now)) continue;
     const { dayOfWeek } = parseDateString(turn.date);
     const start = toMinutes(turn.startTime);
     const schedule = schedules.find(
@@ -216,7 +219,9 @@ async function applyFixedBookings(tx: Prisma.TransactionClient, complexId: strin
     },
   });
 
+  const now = nowParts();
   for (const turn of candidates) {
+    if (hasStarted(turn.date, turn.startTime, now)) continue;
     const { dayOfWeek } = parseDateString(turn.date);
     const fb = fixedBookings.find(
       (f) =>
@@ -275,7 +280,7 @@ export async function ensureTurnsForRange(
   }
 
   const courtIds = courts.map((c) => c.id);
-  const todayStr = formatDate(new Date());
+  const todayStr = today();
   const genFrom = fromDateStr > todayStr ? fromDateStr : todayStr;
 
   if (genFrom <= toDateStr) {
@@ -397,33 +402,100 @@ type ScheduleConflict = {
   type: string;
 };
 
+export type ClassScheduleConflict = {
+  classScheduleId: string;
+  professorName: string;
+  courtName: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+};
+
+export type FixedBookingConflict = {
+  fixedBookingId: string;
+  courtName: string;
+  dayOfWeek: number;
+  startTime: string;
+  guestName: string;
+};
+
+export type SaveCourtsResult =
+  | { success: true; deactivatedFixedBookings: FixedBookingConflict[] }
+  | {
+      hasConflicts: true;
+      conflictType: 'CLASS_SCHEDULES' | 'COURT_DELETION' | 'RANGE_CHANGE';
+      conflicts: ScheduleConflict[];
+      classSchedules: ClassScheduleConflict[];
+      fixedBookings: FixedBookingConflict[];
+    };
+
 /**
  * Saves the courts of a complex (add / rename / delete, and each court's
  * range: opening, closing, slot length and base price).
  *
- * Every conflict (future reservations on a deleted court, or outside a
- * court's new range) is detected BEFORE any write, so a 409 leaves the data
- * untouched. Runs as a single transaction: court changes and the turn
- * re-sync either all land together or none do.
+ * Every conflict is detected BEFORE any write, so a 409 leaves the data
+ * untouched:
+ * - A professor's class schedule whose classes would change (court deleted,
+ *   or its turns inside the schedule's window move) always blocks the save:
+ *   students are enrolled by class start time, so the professor has to
+ *   remove or redo the schedule first.
+ * - Upcoming reservations on a deleted court or outside a court's new range,
+ *   and fixed bookings whose slot disappears, need `resolveConflicts`. Those
+ *   fixed bookings are ended either way (their slot no longer exists).
+ *
+ * Deleted courts are deactivated, not removed, so their past reservations,
+ * payments and the classes already charged are kept. Runs as a single
+ * transaction: court changes and the turn re-sync all land together or none.
  */
-export async function saveComplexCourts(complexId: string, payload: CourtsUpdatePayload) {
+export async function saveComplexCourts(complexId: string, payload: CourtsUpdatePayload): Promise<SaveCourtsResult> {
   const { courts: courtInputs, resolveConflicts } = payload;
-  const todayStr = formatDate(new Date());
+  const now = nowParts();
+  const todayStr = now.today;
 
   return prisma.$transaction(
-    async (tx) => {
-      const existingCourts = await tx.court.findMany({ where: { complexId } });
-      const existingIds = new Set(existingCourts.map((c) => c.id));
-      const inputIds = courtInputs.map((c) => c.id).filter((id): id is string => Boolean(id) && existingIds.has(id!));
-      const courtsToDelete = existingCourts.filter((c) => !inputIds.includes(c.id));
+    async (tx): Promise<SaveCourtsResult> => {
+      const existingCourts = await tx.court.findMany({ where: { complexId, active: true } });
+      const existingIds = existingCourts.map((c) => c.id);
+      const existingById = new Map(existingCourts.map((c) => [c.id, c]));
+      const inputById = new Map(courtInputs.filter((c) => c.id && existingById.has(c.id)).map((c) => [c.id!, c]));
+      const courtsToDelete = existingCourts.filter((c) => !inputById.has(c.id));
+      const deletedIds = new Set(courtsToDelete.map((c) => c.id));
+      const courtName = (courtId: string) => existingById.get(courtId)?.name ?? '';
+      const newStartsOf = (courtId: string) => new Set(buildCourtSlots(inputById.get(courtId)!).map((s) => s.start));
 
-      const futureReservations = await tx.reservation.findMany({
-        where: {
-          complexId,
-          turn: { date: { gte: todayStr }, courtId: { in: existingCourts.map((c) => c.id) } },
-        },
-        include: { turn: { include: { court: true } } },
+      // 1. Class schedules whose classes would change: never overridable.
+      const classSchedules = await tx.classSchedule.findMany({
+        where: { courtId: { in: existingIds }, active: true },
+        include: { professor: { select: { name: true } } },
       });
+      const classConflicts: ClassScheduleConflict[] = classSchedules
+        .filter((cs) => {
+          const input = inputById.get(cs.courtId);
+          if (!input) return true;
+          const before = slotsWithin(existingById.get(cs.courtId)!, cs.startTime, cs.endTime).map((s) => s.start).join();
+          const after = slotsWithin(input, cs.startTime, cs.endTime).map((s) => s.start).join();
+          return before !== after;
+        })
+        .map((cs) => ({
+          classScheduleId: cs.id,
+          professorName: cs.professor.name,
+          courtName: courtName(cs.courtId),
+          daysOfWeek: cs.daysOfWeek,
+          startTime: cs.startTime,
+          endTime: cs.endTime,
+        }));
+      if (classConflicts.length > 0) {
+        return { hasConflicts: true, conflictType: 'CLASS_SCHEDULES', conflicts: [], classSchedules: classConflicts, fixedBookings: [] };
+      }
+
+      // 2. Upcoming reservations on deleted courts or outside the new range.
+      // Those that already started took place: they're history, not conflicts.
+      const futureReservations = (
+        await tx.reservation.findMany({
+          where: { complexId, turn: { date: { gte: todayStr }, courtId: { in: existingIds } } },
+          include: { turn: { include: { court: true } } },
+        })
+      ).filter((r) => !hasStarted(r.turn.date, r.turn.startTime, now));
 
       const toConflict = (r: (typeof futureReservations)[0]): ScheduleConflict => ({
         reservationId: r.id,
@@ -435,50 +507,51 @@ export async function saveComplexCourts(complexId: string, payload: CourtsUpdate
         type: r.type,
       });
 
-      // 1. Reservations on courts being deleted
-      const deletedIds = new Set(courtsToDelete.map((c) => c.id));
       const deletionConflicts = futureReservations.filter((r) => deletedIds.has(r.turn.courtId)).map(toConflict);
+      const rangeConflicts = futureReservations
+        .filter((r) => !deletedIds.has(r.turn.courtId) && !newStartsOf(r.turn.courtId).has(r.turn.startTime))
+        .map(toConflict);
 
-      // 2. Reservations whose start falls outside the court's new range
-      const rangeConflicts: ScheduleConflict[] = [];
-      for (const input of courtInputs) {
-        if (!input.id || !existingIds.has(input.id)) continue;
-        const newStarts = new Set(buildCourtSlots(input).map((s) => s.start));
-        for (const r of futureReservations) {
-          if (r.turn.courtId === input.id && !newStarts.has(r.turn.startTime)) {
-            rangeConflicts.push(toConflict(r));
-          }
-        }
-      }
+      // 3. Fixed bookings whose slot disappears.
+      const fixedBookings = await tx.fixedBooking.findMany({ where: { courtId: { in: existingIds }, active: true } });
+      const fixedConflicts: FixedBookingConflict[] = fixedBookings
+        .filter((fb) => deletedIds.has(fb.courtId) || !newStartsOf(fb.courtId).has(fb.startTime))
+        .map((fb) => ({
+          fixedBookingId: fb.id,
+          courtName: courtName(fb.courtId),
+          dayOfWeek: fb.dayOfWeek,
+          startTime: fb.startTime,
+          guestName: fb.guestName,
+        }));
 
       const conflicts = [...deletionConflicts, ...rangeConflicts];
-      if (conflicts.length > 0 && !resolveConflicts) {
+      if ((conflicts.length > 0 || fixedConflicts.length > 0) && !resolveConflicts) {
         return {
           hasConflicts: true,
-          conflictType: deletionConflicts.length > 0 ? 'COURT_DELETION' : 'RANGE_CHANGE',
+          conflictType: deletionConflicts.length > 0 || rangeConflicts.length === 0 && courtsToDelete.length > 0 ? 'COURT_DELETION' : 'RANGE_CHANGE',
           conflicts,
+          classSchedules: [],
+          fixedBookings: fixedConflicts,
         };
       }
 
-      // Deleted courts cascade-delete their turns and reservations either
-      // way; drop their payments too so they don't linger as orphans.
-      if (deletionConflicts.length > 0) {
-        await tx.payment.deleteMany({
-          where: { payableType: 'RESERVATION', payableId: { in: deletionConflicts.map((c) => c.reservationId) } },
-        });
+      if (fixedConflicts.length > 0) {
+        await tx.fixedBooking.updateMany({ where: { id: { in: fixedConflicts.map((f) => f.fixedBookingId) } }, data: { active: false } });
       }
 
-      // KEEP leaves out-of-range reservations in place (occupied turns are
-      // never deleted by the re-sync); CANCEL frees them, and the re-sync
-      // below then removes the now-free out-of-range turns.
-      if (resolveConflicts === 'CANCEL') {
-        for (const c of rangeConflicts) {
-          await releaseReservationTx(tx, { id: c.reservationId, turnId: c.turnId });
-        }
+      // A deleted court can't keep upcoming reservations; out-of-range ones
+      // are freed only with CANCEL (KEEP leaves them: occupied turns are never
+      // deleted by the re-sync, which then removes the now-free turns).
+      const toRelease = resolveConflicts === 'CANCEL' ? conflicts : deletionConflicts;
+      for (const c of toRelease) {
+        await releaseReservationTx(tx, { id: c.reservationId, turnId: c.turnId });
       }
 
       if (courtsToDelete.length > 0) {
-        await tx.court.deleteMany({ where: { id: { in: courtsToDelete.map((c) => c.id) } } });
+        const ids = courtsToDelete.map((c) => c.id);
+        await tx.court.updateMany({ where: { id: { in: ids } }, data: { active: false } });
+        // Its upcoming free turns go away; past ones stay with their reservations.
+        await tx.turn.deleteMany({ where: { courtId: { in: ids }, date: { gte: todayStr }, reservation: null } });
       }
 
       for (let i = 0; i < courtInputs.length; i++) {
@@ -492,7 +565,7 @@ export async function saveComplexCourts(complexId: string, payload: CourtsUpdate
           slotMinutes: c.slotMinutes,
           basePrice: c.basePrice,
         };
-        if (c.id && existingIds.has(c.id)) {
+        if (c.id && inputById.has(c.id)) {
           await tx.court.update({ where: { id: c.id }, data });
         } else {
           await tx.court.create({ data: { ...data, complexId } });
@@ -502,7 +575,7 @@ export async function saveComplexCourts(complexId: string, payload: CourtsUpdate
       // Re-sync future turns (next 60 days), inside this same transaction
       await ensureTurnsForRange(complexId, todayStr, addDays(todayStr, 60), tx);
 
-      return { success: true };
+      return { success: true, deactivatedFixedBookings: fixedConflicts };
     },
     { maxWait: 5000, timeout: 20000 }
   );

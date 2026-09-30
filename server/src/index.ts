@@ -30,6 +30,7 @@ const generalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skip: skipRateLimit,
+  message: { error: 'Demasiadas solicitudes seguidas. Esperá un momento y probá de nuevo.' },
 });
 
 const authLimiter = rateLimit({
@@ -83,6 +84,15 @@ app.use((req: Request, res: Response) => {
 app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   if (err instanceof HttpError) {
     res.status(err.statusCode).json({ error: err.publicMessage });
+    return;
+  }
+  // Body errors raised by express.json() before reaching any route.
+  if (err?.type === 'entity.parse.failed') {
+    res.status(400).json({ error: 'Los datos enviados no tienen un formato válido.' });
+    return;
+  }
+  if (err?.type === 'entity.too.large') {
+    res.status(413).json({ error: 'Los datos enviados son demasiado grandes.' });
     return;
   }
   console.error('Unhandled server error:', err);

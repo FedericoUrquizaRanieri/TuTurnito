@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Search, MapPin, LayoutGrid, ChevronRight, PlusCircle, SearchX } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { getComplexPhoto, HERO_PHOTO_ID } from '../lib/stockPhotos';
 import type { ComplexSummary } from '../types';
 
@@ -10,6 +11,7 @@ const heroPhotoUrl = `https://images.unsplash.com/photo-${HERO_PHOTO_ID}?auto=fo
 
 export const HomePage: React.FC = () => {
   const { user } = useAuth();
+  const toast = useToast();
   const [complexes, setComplexes] = useState<ComplexSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,7 +27,7 @@ export const HomePage: React.FC = () => {
       const res = await api.complexes.list(params);
       setComplexes(res.complexes || []);
     } catch (err) {
-      console.error('Error loading complexes:', err);
+      toast.error(err, 'No se pudieron cargar los complejos.');
     } finally {
       setLoading(false);
     }

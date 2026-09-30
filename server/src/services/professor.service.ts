@@ -1,7 +1,7 @@
 import prisma from '../prisma';
 import { ProfessorRequestStatus } from '@prisma/client';
 import { HttpError } from '../middleware/HttpError';
-import { computeBalances, EMPTY_BALANCE } from './classSchedule.service';
+import { closeEnrollmentsTx, computeBalances, EMPTY_BALANCE } from './classSchedule.service';
 
 // ── Onboarding: professor <-> complex linking ──────────────────────────────
 
@@ -137,10 +137,16 @@ export async function updateStudent(studentId: string, professorId: string, inpu
   });
 }
 
-/** Soft delete — keeps the student's payments and class charges intact. */
+/**
+ * Soft delete — keeps the student's payments and class charges intact, and
+ * takes them out of their classes (freeing the spot) from the next class on.
+ */
 export async function deleteStudent(studentId: string, professorId: string): Promise<void> {
   const student = await prisma.student.findUnique({ where: { id: studentId } });
   assertOwnsStudent(student, professorId);
 
-  await prisma.student.update({ where: { id: studentId }, data: { active: false } });
+  await prisma.$transaction(async (tx) => {
+    await tx.student.update({ where: { id: studentId }, data: { active: false } });
+    await closeEnrollmentsTx(tx, { studentId });
+  });
 }

@@ -248,15 +248,29 @@ model ClassEnrollment {
   startTime       String        // "HH:MM"
   studentId       String
   student         Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  price           Float
+  price           Float         // valor actual (el historial está en ClassEnrollmentPrice)
   startDate       String        // "YYYY-MM-DD": clases desde esta fecha generan deuda
   endDate         String?       // "YYYY-MM-DD": exclusivo; null = sigue inscripto
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
   absences ClassAbsence[]
+  prices   ClassEnrollmentPrice[]
 
   @@index([classScheduleId, dayOfWeek, startTime])
+}
+
+// Historial del valor por clase de una inscripción: cada clase se cobra con
+// el precio vigente en su fecha, así un aumento no cambia las clases pasadas.
+model ClassEnrollmentPrice {
+  id           String          @id @default(uuid())
+  enrollmentId String
+  enrollment   ClassEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  price        Float
+  fromDate     String          // "YYYY-MM-DD": rige para las clases desde esta fecha
+  createdAt    DateTime        @default(now())
+
+  @@unique([enrollmentId, fromDate])
 }
 
 // El alumno faltó (o avisó que va a faltar) a la clase de esa fecha: esa

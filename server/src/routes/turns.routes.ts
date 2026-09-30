@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
-import { ensureTurnsForRange, formatDate } from '../services/schedule.service';
+import { ensureTurnsForRange } from '../services/schedule.service';
+import { today } from '../services/clock';
 import { asyncHandler } from '../middleware/asyncHandler';
 import { HttpError } from '../middleware/HttpError';
 
@@ -15,7 +16,7 @@ router.get(
     const id = req.params.id as string;
     const { from, to } = req.query;
 
-    const todayStr = formatDate(new Date());
+    const todayStr = today();
 
     if (from !== undefined && (typeof from !== 'string' || !DATE_REGEX.test(from))) {
       throw new HttpError(400, 'El parámetro "from" debe tener formato YYYY-MM-DD.');
