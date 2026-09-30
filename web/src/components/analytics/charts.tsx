@@ -140,3 +140,35 @@ export const BarList: React.FC<{ rows: { label: string; value: number; display: 
     </div>
   );
 };
+
+export interface Metric {
+  label: string;
+  value: string;
+  /** Short detail under the value ("10 clases", "2 alumnos"). */
+  sub?: string;
+  /** Marks a value that needs attention (a loss, a debt); the text keeps a sign or word too, never color alone. */
+  tone?: 'default' | 'warning' | 'negative';
+  icon?: React.ReactNode;
+}
+
+/**
+ * A titled card of related numbers laid out in one row (two columns on a
+ * phone), separated by hairlines: reads as one summary instead of loose tiles.
+ */
+export const MetricGroup: React.FC<{ title: string; metrics: Metric[] }> = ({ title, metrics }) => (
+  <section className="card metric-group" aria-label={title}>
+    <h3 className="metric-group-title">{title}</h3>
+    <div className="metric-group-grid" style={{ ['--metric-count' as string]: metrics.length }}>
+      {metrics.map((m) => (
+        <div key={m.label} className="metric">
+          <div className="metric-label">
+            {m.icon}
+            <span>{m.label}</span>
+          </div>
+          <div className={`metric-value ${m.tone && m.tone !== 'default' ? `metric-${m.tone}` : ''}`}>{m.value}</div>
+          {m.sub && <div className="metric-sub">{m.sub}</div>}
+        </div>
+      ))}
+    </div>
+  </section>
+);

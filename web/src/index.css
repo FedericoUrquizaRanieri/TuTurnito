@@ -1266,3 +1266,130 @@ button {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+/* Grupo de métricas (analíticas del profe) */
+.metric-group {
+  padding: 1.25rem 1.25rem 1.1rem;
+}
+
+.metric-group-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+  margin: 0 0 0.9rem;
+}
+
+.metric-group-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--metric-count, 4), minmax(0, 1fr));
+}
+
+.metric {
+  padding: 0.15rem 1.1rem;
+  border-left: 1px solid var(--border-subtle);
+  min-width: 0;
+}
+
+.metric:first-child {
+  border-left: none;
+  padding-left: 0;
+}
+
+.metric-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 0.35rem;
+  white-space: nowrap;
+}
+
+.metric-label svg {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+}
+
+.metric-value {
+  font-family: var(--font-display);
+  font-size: 1.9rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--text-main);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-value.metric-negative {
+  color: var(--status-blocked);
+}
+
+.metric-value.metric-warning {
+  color: var(--accent-secondary);
+}
+
+.metric-sub {
+  font-size: 0.75rem;
+  color: var(--text-subtle);
+  margin-top: 0.25rem;
+}
+
+@media (max-width: 720px) {
+  .metric-group-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 1rem;
+  }
+
+  .metric:nth-child(odd) {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .metric-value {
+    font-size: 1.5rem;
+  }
+}
+
+/* Lugares libres, agrupados por día */
+.free-slots-day {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 0.6rem;
+  align-items: start;
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.free-slots-day:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.free-slots-day-label {
+  font-weight: 700;
+  font-size: 0.85rem;
+  padding-top: 0.2rem;
+}
+
+.free-slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 0.2rem 0.65rem;
+  font-size: 0.78rem;
+  margin: 0 0.35rem 0.35rem 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.free-slot-chip strong {
+  color: var(--text-main);
+}
+
+.free-slot-chip .seats {
+  color: var(--text-muted);
+}

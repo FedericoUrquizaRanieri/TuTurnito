@@ -248,7 +248,9 @@ export async function getComplexAnalytics(complexId: string, from: string, toPar
  * turns their classes used (what the complex charges them).
  */
 export async function getProfessorAnalytics(professorId: string, from: string, to: string) {
-  const granularity = granularityFor(from, to);
+  // Classes repeat weekly, so days would mostly be empty bars: weeks up to
+  // ~4 months, months beyond.
+  const granularity: Granularity = getDateRange(from, to).length <= 120 ? 'week' : 'month';
   const inRange = (date: string) => date >= from && date <= to;
   const now = nowParts();
 
