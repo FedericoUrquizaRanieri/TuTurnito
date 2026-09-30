@@ -3,11 +3,11 @@ import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../api/client';
 import { X, Calendar, Clock, DollarSign, CheckCircle, AlertCircle, Sparkles, GraduationCap, Info } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import type { Turn, OpenMatchInput } from '../types';
+import type { PublicTurn, OpenMatchInput } from '../types';
 import { OpenMatchFields } from './openMatch/OpenMatchFields';
 
 interface ReservationModalProps {
-  turn: Turn;
+  turn: PublicTurn;
   complexName: string;
   complexId: string;
   isApprovedProfessor?: boolean;

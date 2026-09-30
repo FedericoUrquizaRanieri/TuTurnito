@@ -56,7 +56,7 @@ router.get(
     const complexes = await prisma.complex.findMany({
       where: whereClause,
       include: {
-        owner: { select: { id: true, name: true, phone: true } },
+        owner: { select: { id: true, name: true } },
         courts: {
           where: { active: true },
           select: { basePrice: true },
@@ -102,7 +102,9 @@ router.get(
     const complex = await prisma.complex.findFirst({
       where: { OR: [{ id: idOrSlug }, { slug: idOrSlug.toLowerCase() }] },
       include: {
-        owner: { select: { id: true, name: true, phone: true, email: true } },
+        // Public page: the owner's own email and phone stay private (the
+        // complex has its own contact phone).
+        owner: { select: { id: true, name: true } },
         courts: { where: { active: true }, orderBy: { order: 'asc' } },
       },
     });

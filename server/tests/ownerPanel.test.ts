@@ -12,9 +12,12 @@ import {
 } from './helpers';
 import { parseDateString } from '../src/services/schedule.service';
 
-async function getTurn(complexId: string, date: string, courtId: string, startTime: string) {
+async function getTurn(complexId: string, date: string, courtId: string, startTime: string): Promise<any> {
+  // The public endpoint generates the turns but only says whether they're taken;
+  // who booked them is read straight from the database.
   const res = await request(app).get(`/api/complexes/${complexId}/turns`).query({ from: date, to: date });
-  return res.body.turns.find((t: any) => t.courtId === courtId && t.startTime === startTime);
+  const found = res.body.turns?.find((t: any) => t.courtId === courtId && t.startTime === startTime);
+  return found ? prisma.turn.findUnique({ where: { id: found.id }, include: { reservation: true } }) : undefined;
 }
 
 describe('owner reservations panel', () => {
