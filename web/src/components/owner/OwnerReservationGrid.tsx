@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { DatePillStrip } from '../DatePillStrip';
 import { Banner } from '../Banner';
 import { TurnActionModal } from './TurnActionModal';
-import { addDays, todayStr, shortDateLabel } from '../../lib/dates';
+import { addDays, hasStarted, todayStr, shortDateLabel } from '../../lib/dates';
 import { buildCourtSlots, toMinutes } from '../../lib/slots';
 import type { Court, OwnerTurn } from '../../types';
 
@@ -111,7 +111,7 @@ export const OwnerReservationGrid: React.FC<OwnerReservationGridProps> = ({ comp
           complexId={complexId}
           turn={selectedTurn}
           courtName={courts.find((c) => c.id === selectedTurn.courtId)?.name || selectedTurn.court.name}
-          isPast={selectedTurn.date < today}
+          isPast={hasStarted(selectedTurn.date, selectedTurn.startTime)}
           onChanged={handleChanged}
           onClose={() => setSelectedTurnId(null)}
         />

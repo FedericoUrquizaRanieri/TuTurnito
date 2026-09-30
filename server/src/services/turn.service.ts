@@ -1,7 +1,8 @@
 import prisma from '../prisma';
 import { z } from 'zod';
 import { HttpError } from '../middleware/HttpError';
-import { formatDate } from './schedule.service';
+import { today } from './clock';
+import { ensureTurnsForRange } from './schedule.service';
 
 export const turnOwnerUpdateSchema = z
   .object({
@@ -17,9 +18,10 @@ export type TurnOwnerUpdateInput = z.infer<typeof turnOwnerUpdateSchema>;
 
 /**
  * Owner edits one concrete turn from the reservations grid: block it, mark it
- * as a tournament, free it again, or change its price. The turn is flagged
- * `manualOverride` so the automatic re-sync from the court's range never
- * reverts the owner's change.
+ * as a tournament, free it again, or change its price. A blocked/tournament
+ * turn or a custom price is flagged `manualOverride` so the automatic re-sync
+ * never reverts it; a turn freed back to the court's base price loses the
+ * flag, so a fixed booking or class schedule that applies books it again.
  */
 export async function updateTurnByOwner(complexId: string, turnId: string, input: TurnOwnerUpdateInput) {
   const turn = await prisma.turn.findUnique({ where: { id: turnId }, include: { court: true, reservation: true } });
@@ -27,7 +29,7 @@ export async function updateTurnByOwner(complexId: string, turnId: string, input
   if (!turn || turn.court.complexId !== complexId) {
     throw new HttpError(404, 'Turno no encontrado.');
   }
-  if (turn.date < formatDate(new Date())) {
+  if (turn.date < today()) {
     throw new HttpError(400, 'No se pueden modificar turnos de días pasados.');
   }
   if (turn.state === 'OCCUPIED' || turn.reservation) {
@@ -35,6 +37,8 @@ export async function updateTurnByOwner(complexId: string, turnId: string, input
   }
 
   const nextState = input.state ?? turn.state;
+  const nextPrice = input.price ?? turn.price;
+  const manualOverride = nextState !== 'AVAILABLE' || nextPrice !== turn.court.basePrice;
   // The label only makes sense on tournaments; it's cleared otherwise.
   const nextLabel = nextState === 'TOURNAMENT' ? (input.label !== undefined ? input.label?.trim() || null : turn.label) : null;
 
@@ -43,13 +47,17 @@ export async function updateTurnByOwner(complexId: string, turnId: string, input
     where: { id: turnId, state: { not: 'OCCUPIED' } },
     data: {
       state: nextState,
-      price: input.price ?? turn.price,
+      price: nextPrice,
       label: nextLabel,
-      manualOverride: true,
+      manualOverride,
     },
   });
   if (result.count === 0) {
     throw new HttpError(409, 'El turno acaba de ser reservado.');
+  }
+
+  if (!manualOverride) {
+    await ensureTurnsForRange(complexId, turn.date, turn.date);
   }
 
   return prisma.turn.findUnique({ where: { id: turnId } });

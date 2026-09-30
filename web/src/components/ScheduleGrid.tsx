@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Calendar as CalendarIcon, Sparkles, GraduationCap, Trophy } from 'lucide-react';
 import { ReservationModal } from './ReservationModal';
+import { hasStarted } from '../lib/dates';
 import type { Turn } from '../types';
 
 // Re-exported under this name since ComplexDetailPage.tsx already imports
@@ -95,7 +96,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                     <h4 style={{ fontSize: '1.15rem', fontWeight: 800 }}>{court.name}</h4>
                   </div>
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                    {courtTurns.filter((t) => t.state === 'AVAILABLE').length} libres hoy
+                    {courtTurns.filter((t) => t.state === 'AVAILABLE' && !hasStarted(t.date, t.startTime)).length} libres
                   </span>
                 </div>
 
@@ -106,7 +107,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                   gap: '0.85rem',
                 }}>
                   {courtTurns.map((turn) => {
-                    const isAvail = turn.state === 'AVAILABLE';
+                    // A free turn that already started can't be booked anymore.
+                    const isStarted = turn.state === 'AVAILABLE' && hasStarted(turn.date, turn.startTime);
+                    const isAvail = turn.state === 'AVAILABLE' && !isStarted;
                     const isOcc = turn.state === 'OCCUPIED';
                     const isTournament = turn.state === 'TOURNAMENT';
 
@@ -116,7 +119,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                         style={{
                           background: isAvail
                             ? 'var(--bg-surface)'
-                            : isOcc
+                            : isOcc || isStarted
                             ? 'rgba(118, 136, 163, 0.08)'
                             : isTournament
                             ? 'var(--status-tournament-bg)'
@@ -124,7 +127,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                           border: `1px solid ${
                             isAvail
                               ? 'rgba(52, 199, 149, 0.3)'
-                              : isOcc
+                              : isOcc || isStarted
                               ? 'rgba(118, 136, 163, 0.2)'
                               : isTournament
                               ? 'rgba(167, 139, 250, 0.3)'
@@ -168,6 +171,10 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                               <Sparkles size={13} />
                               <span>Reservar</span>
                             </button>
+                          ) : isStarted ? (
+                            <span className="badge badge-occupied" style={{ width: '100%', justifyContent: 'center' }}>
+                              Ya comenzó
+                            </span>
                           ) : isOcc ? (
                             <span className="badge badge-occupied" style={{ width: '100%', justifyContent: 'center', gap: '0.3rem' }}>
                               {turn.reservation?.type === 'CLASS' ? (<><GraduationCap size={11} /> Clase</>) : 'Ocupado'}

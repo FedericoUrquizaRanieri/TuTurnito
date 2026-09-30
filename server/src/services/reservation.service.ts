@@ -2,7 +2,7 @@ import prisma from '../prisma';
 import { Prisma, Reservation, Turn, Payment, ReservationType, PaymentStatus } from '@prisma/client';
 import { HttpError } from '../middleware/HttpError';
 import { UserPayload } from '../middleware/auth';
-import { formatDate } from './schedule.service';
+import { hasStarted, nowParts } from './clock';
 import { buildPaymentMap, getPaymentsByPayableIds, findOrCreatePaymentForPayable } from './payment.service';
 import { bookTurnTx, releaseReservationTx } from './booking';
 
@@ -16,7 +16,7 @@ export interface CreateReservationInput {
 
 export type CreateReservationResult =
   | { success: true; reservation: Reservation; turn: Turn; payment: Payment }
-  | { success: false; conflictType: 'OCCUPIED' | 'BLOCKED' | 'NOT_FOUND'; message: string };
+  | { success: false; conflictType: 'OCCUPIED' | 'BLOCKED' | 'STARTED' | 'NOT_FOUND'; message: string };
 
 /**
  * Creates a reservation for a turn inside one atomic transaction (turn ->
@@ -69,6 +69,9 @@ export async function createReservation(
       if (turn.state === 'BLOCKED' || turn.state === 'TOURNAMENT') {
         return { success: false, conflictType: 'BLOCKED', message: 'Este turno se encuentra bloqueado y no está disponible para reserva.' } as const;
       }
+      if (hasStarted(turn.date, turn.startTime)) {
+        return { success: false, conflictType: 'STARTED', message: 'Este turno ya comenzó y no se puede reservar.' } as const;
+      }
 
       const complex = turn.court.complex;
       // An owner booking by hand (phone/walk-in) books on behalf of the
@@ -104,10 +107,13 @@ export async function createReservation(
 }
 
 function assertCanCancelReservation(
-  reservation: { userId: string | null; complex: { ownerId: string } },
+  reservation: { userId: string | null; guestEmail: string | null; complex: { ownerId: string } },
   user: UserPayload
 ) {
-  const isPlayerWhoBooked = reservation.userId === user.id;
+  // A reservation made as a guest (no account) belongs to whoever registers with its email.
+  const isPlayerWhoBooked =
+    reservation.userId === user.id ||
+    (reservation.userId === null && Boolean(reservation.guestEmail) && reservation.guestEmail!.toLowerCase() === user.email.toLowerCase());
   const isOwner = reservation.complex.ownerId === user.id;
   if (!isPlayerWhoBooked && !isOwner) {
     throw new HttpError(403, 'No tienes permiso para cancelar esta reserva.');
@@ -132,6 +138,12 @@ export async function cancelReservation(reservationId: string, requester: UserPa
   }
 
   assertCanCancelReservation(reservation, requester);
+
+  // Once it started it took place (and a class was charged to its students):
+  // nobody can cancel it, not even the owner.
+  if (hasStarted(reservation.turn.date, reservation.turn.startTime)) {
+    throw new HttpError(409, 'No se puede cancelar un turno que ya comenzó.');
+  }
 
   // Cancelling one occurrence of a fixed booking or a professor's class
   // schedule flags the turn so the generator doesn't book that date again.
@@ -236,14 +248,16 @@ export async function updateReservationPayment(
 /** "Mis reservas" — every reservation tied to this user's account or guest email. */
 export async function getMyReservations(userId: string, userEmail: string) {
   const reservations = await prisma.reservation.findMany({
-    where: { OR: [{ userId }, { guestEmail: userEmail }] },
+    // By email only the reservations made as a guest (without an account):
+    // one booked by another user with my email isn't mine.
+    where: { OR: [{ userId }, { userId: null, guestEmail: { equals: userEmail, mode: 'insensitive' } }] },
     include: { complex: true, turn: { include: { court: true } } },
     orderBy: [{ turn: { date: 'desc' } }, { turn: { startTime: 'desc' } }],
   });
 
   const payments = await getPaymentsByPayableIds('RESERVATION', reservations.map((r) => r.id));
   const paymentMap = buildPaymentMap(payments);
-  const todayStr = formatDate(new Date());
+  const now = nowParts();
 
   return reservations.map((r) => {
     const p = paymentMap.get(r.id);
@@ -260,7 +274,8 @@ export async function getMyReservations(userId: string, userEmail: string) {
       price: r.turn.price,
       type: r.type,
       paymentStatus: p?.status || 'PENDING',
-      isPast: r.turn.date < todayStr,
+      // Started = past: it can no longer be cancelled.
+      isPast: hasStarted(r.turn.date, r.turn.startTime, now),
       createdAt: r.createdAt,
     };
   });

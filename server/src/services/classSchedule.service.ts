@@ -1,12 +1,13 @@
 import prisma from '../prisma';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HttpError } from '../middleware/HttpError';
 import { releaseReservationTx } from './booking';
+import { hasStarted, nowParts } from './clock';
 import {
   TIME_REGEX,
   addDays,
   ensureTurnsForRange,
-  formatDate,
   fromMinutes,
   parseDateString,
   slotsWithin,
@@ -69,17 +70,31 @@ export type ClassScheduleCreateInput = z.infer<typeof classScheduleCreateSchema>
 export type EnrollmentCreateInput = z.infer<typeof enrollmentCreateSchema>;
 export type StudentPaymentInput = z.infer<typeof studentPaymentSchema>;
 
-function nowParts() {
-  const now = new Date();
-  return {
-    today: formatDate(now),
-    time: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-  };
+/**
+ * Un-enrolls the matching open enrollments: the classes already given (today's
+ * included, once started) stay charged, the upcoming ones aren't.
+ */
+export async function closeEnrollmentsTx(
+  tx: Prisma.TransactionClient,
+  where: Prisma.ClassEnrollmentWhereInput,
+  now = nowParts()
+) {
+  const open = await tx.classEnrollment.findMany({ where: { ...where, endDate: null } });
+  for (const e of open) {
+    await tx.classEnrollment.update({ where: { id: e.id }, data: { endDate: firstChargeableDate(e.dayOfWeek, e.startTime, now) } });
+  }
 }
 
-/** A class counts as given (and is charged) once it has started. */
-function hasStarted(date: string, startTime: string, now = nowParts()) {
-  return date < now.today || (date === now.today && startTime <= now.time);
+/**
+ * First date from which a weekly class (weekday + start time) is charged, if
+ * the student joins, leaves or changes price right now: today, unless
+ * today's class already started — that one keeps the previous terms.
+ */
+export function firstChargeableDate(dayOfWeek: number, startTime: string, now = nowParts()) {
+  if (parseDateString(now.today).dayOfWeek === dayOfWeek && hasStarted(now.today, startTime, now)) {
+    return addDays(now.today, 1);
+  }
+  return now.today;
 }
 
 function rangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: string) {
@@ -198,21 +213,21 @@ export async function createClassSchedule(professorId: string, input: ClassSched
  */
 export async function deleteClassSchedule(professorId: string, classScheduleId: string) {
   await getOwnedSchedule(professorId, classScheduleId);
-  const { today, time } = nowParts();
+  const now = nowParts();
 
   await prisma.$transaction(async (tx) => {
     await tx.classSchedule.update({ where: { id: classScheduleId }, data: { active: false } });
 
     const upcoming = await tx.reservation.findMany({
-      where: { classScheduleId, turn: { date: { gte: today } } },
+      where: { classScheduleId, turn: { date: { gte: now.today } } },
       include: { turn: true },
     });
     for (const r of upcoming) {
-      if (r.turn.date === today && r.turn.startTime <= time) continue; // already started
+      if (hasStarted(r.turn.date, r.turn.startTime, now)) continue;
       await releaseReservationTx(tx, r, { manualOverride: false });
     }
 
-    await tx.classEnrollment.updateMany({ where: { classScheduleId, endDate: null }, data: { endDate: today } });
+    await closeEnrollmentsTx(tx, { classScheduleId }, now);
   });
 }
 
@@ -225,9 +240,16 @@ export interface StudentBalance {
   classesCharged: number;
 }
 
+/** What the enrollment charged for the class of `date`: the price in force that day (a change only applies from the next class on). */
+function priceOn(e: { price: number; prices: { price: number; fromDate: string }[] }, date: string) {
+  let price = e.prices[0]?.price ?? e.price;
+  for (const p of e.prices) if (p.fromDate <= date) price = p.price;
+  return price;
+}
+
 /**
  * Balance of each of the professor's students: every class they're enrolled
- * in that has already started adds its price as debt (only classes that
+ * in that has already started adds its price (the one in force that day) as debt (only classes that
  * actually took place — a cancelled occurrence has no reservation — and
  * that the student didn't miss), and every payment the professor records
  * subtracts it.
@@ -235,7 +257,7 @@ export interface StudentBalance {
 export async function computeBalances(professorId: string, studentIds?: string[]) {
   const enrollments = await prisma.classEnrollment.findMany({
     where: { student: { professorId }, ...(studentIds ? { studentId: { in: studentIds } } : {}) },
-    include: { absences: true },
+    include: { absences: true, prices: { orderBy: { fromDate: 'asc' } } },
   });
   const scheduleIds = Array.from(new Set(enrollments.map((e) => e.classScheduleId)));
 
@@ -262,7 +284,7 @@ export async function computeBalances(professorId: string, studentIds?: string[]
         r.turn.date >= e.startDate &&
         (!e.endDate || r.turn.date < e.endDate)
       ) {
-        const charge = { studentId: e.studentId, enrollmentId: e.id, date: r.turn.date, startTime: r.turn.startTime, endTime: r.turn.endTime, price: e.price };
+        const charge = { studentId: e.studentId, enrollmentId: e.id, date: r.turn.date, startTime: r.turn.startTime, endTime: r.turn.endTime, price: priceOn(e, r.turn.date) };
         (absentDates.has(r.turn.date) ? absentClasses : charges).push(charge);
       }
     }
@@ -367,37 +389,48 @@ export async function addEnrollment(professorId: string, input: EnrollmentCreate
     throw new HttpError(400, 'Ese horario no forma parte del horario de clases.');
   }
 
-  const current = await prisma.classEnrollment.findMany({
-    where: { classScheduleId: schedule.id, dayOfWeek: input.dayOfWeek, startTime: input.startTime, endDate: null },
-  });
-  if (current.length >= MAX_STUDENTS_PER_CLASS) {
-    throw new HttpError(409, `La clase ya tiene ${MAX_STUDENTS_PER_CLASS} alumnos.`);
+  if (input.studentId) {
+    const student = await getOwnedStudent(professorId, input.studentId);
+    if (!student.active) throw new HttpError(404, 'Alumno no encontrado.');
   }
 
-  let studentId = input.studentId;
-  if (studentId) {
-    const student = await getOwnedStudent(professorId, studentId);
-    if (!student.active) throw new HttpError(404, 'Alumno no encontrado.');
-    if (current.some((e) => e.studentId === studentId)) {
+  return prisma.$transaction(async (tx) => {
+    // Locks the schedule row so concurrent enrollments are counted one at a
+    // time: otherwise two requests could both see 3 students and both enroll.
+    await tx.$queryRaw`SELECT id FROM "ClassSchedule" WHERE id = ${schedule.id} FOR UPDATE`;
+
+    const current = await tx.classEnrollment.findMany({
+      where: { classScheduleId: schedule.id, dayOfWeek: input.dayOfWeek, startTime: input.startTime, endDate: null },
+    });
+    if (current.length >= MAX_STUDENTS_PER_CLASS) {
+      throw new HttpError(409, `La clase ya tiene ${MAX_STUDENTS_PER_CLASS} alumnos.`);
+    }
+    if (input.studentId && current.some((e) => e.studentId === input.studentId)) {
       throw new HttpError(409, 'Ese alumno ya está en esta clase.');
     }
-  } else {
-    const created = await prisma.student.create({
-      data: { professorId, name: input.newStudent!.name.trim(), phone: input.newStudent!.phone.trim() },
-    });
-    studentId = created.id;
-  }
 
-  return prisma.classEnrollment.create({
-    data: {
-      classScheduleId: schedule.id,
-      dayOfWeek: input.dayOfWeek,
-      startTime: input.startTime,
-      studentId,
-      price: input.price,
-      startDate: nowParts().today,
-    },
-    include: { student: true },
+    const studentId =
+      input.studentId ??
+      (
+        await tx.student.create({
+          data: { professorId, name: input.newStudent!.name.trim(), phone: input.newStudent!.phone.trim() },
+        })
+      ).id;
+
+    // Joining after today's class started: that class isn't charged.
+    const startDate = firstChargeableDate(input.dayOfWeek, input.startTime);
+    return tx.classEnrollment.create({
+      data: {
+        classScheduleId: schedule.id,
+        dayOfWeek: input.dayOfWeek,
+        startTime: input.startTime,
+        studentId,
+        price: input.price,
+        startDate,
+        prices: { create: { price: input.price, fromDate: startDate } },
+      },
+      include: { student: true },
+    });
   });
 }
 
@@ -412,16 +445,33 @@ async function getOwnedEnrollment(professorId: string, enrollmentId: string) {
   return enrollment;
 }
 
-/** Changes what the student pays per class (applies to every class of this enrollment, past ones included). */
+/**
+ * Changes what the student pays per class from the next class on: the
+ * classes already given keep the price they had.
+ */
 export async function updateEnrollmentPrice(professorId: string, enrollmentId: string, price: number) {
-  await getOwnedEnrollment(professorId, enrollmentId);
-  return prisma.classEnrollment.update({ where: { id: enrollmentId }, data: { price } });
+  const enrollment = await getOwnedEnrollment(professorId, enrollmentId);
+  const fromDate = firstChargeableDate(enrollment.dayOfWeek, enrollment.startTime);
+
+  return prisma.classEnrollment.update({
+    where: { id: enrollmentId },
+    data: {
+      price,
+      prices: {
+        upsert: {
+          where: { enrollmentId_fromDate: { enrollmentId, fromDate } },
+          create: { price, fromDate },
+          update: { price },
+        },
+      },
+    },
+  });
 }
 
-/** Removes the student from the class from today on; the classes they already took stay charged. */
+/** Removes the student from the class; the classes they already took (today's included, once started) stay charged. */
 export async function removeEnrollment(professorId: string, enrollmentId: string) {
   await getOwnedEnrollment(professorId, enrollmentId);
-  await prisma.classEnrollment.update({ where: { id: enrollmentId }, data: { endDate: nowParts().today } });
+  await prisma.$transaction((tx) => closeEnrollmentsTx(tx, { id: enrollmentId }));
 }
 
 // ── Student account: balance, charges and payments ─────────────────────────

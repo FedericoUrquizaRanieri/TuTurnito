@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { X, Phone, Trash2, UserMinus, Plus, UserX, Undo2 } from 'lucide-react';
 import { api } from '../../api/client';
 import { Banner } from '../Banner';
-import { DAY_NAMES, addDays, parseDate, shortDateLabel, todayStr } from '../../lib/dates';
+import { DAY_NAMES, addDays, nowParts, parseDate, shortDateLabel, todayStr } from '../../lib/dates';
 import type { ClassStudent, StudentAccount, WeeklyClass } from '../../types';
 
 interface StudentAccountModalProps {
@@ -16,9 +16,7 @@ const money = (n: number) => `$${Math.abs(n).toLocaleString('es-AR')}`;
 
 /** Date of this class's next occurrence that hasn't started yet (today if it's later today). */
 function nextClassDate(dayOfWeek: number, startTime: string): string {
-  const now = new Date();
-  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const today = todayStr();
+  const { today, time } = nowParts();
   for (let i = 0; i < 8; i++) {
     const date = addDays(today, i);
     if (parseDate(date).getDay() === dayOfWeek && (i > 0 || startTime > time)) return date;
@@ -152,6 +150,9 @@ export const StudentAccountModal: React.FC<StudentAccountModalProps> = ({ cls, s
             Guardar
           </button>
         </div>
+        <p style={{ color: 'var(--text-subtle)', fontSize: '0.75rem', marginTop: '-0.8rem', marginBottom: '1.1rem' }}>
+          Un cambio de valor aplica desde la próxima clase; las clases ya dadas mantienen su precio.
+        </p>
 
         {/* Balance */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.5rem', marginBottom: '1.1rem' }}>

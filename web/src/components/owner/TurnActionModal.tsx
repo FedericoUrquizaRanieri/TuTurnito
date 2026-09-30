@@ -127,7 +127,7 @@ export const TurnActionModal: React.FC<TurnActionModalProps> = ({ complexId, tur
         {error && <Banner type="error" text={error} marginBottom="1rem" />}
 
         {isPast && turn.state !== 'OCCUPIED' && (
-          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Día pasado: solo lectura.</p>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>Este turno ya comenzó: solo lectura.</p>
         )}
 
         {/* Reserved turn: client, payment, cancel */}

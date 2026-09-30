@@ -1,6 +1,6 @@
 import prisma from '../prisma';
 import { Prisma, Payment, PaymentStatus, PayableType } from '@prisma/client';
-import { formatDate } from './schedule.service';
+import { today } from './clock';
 
 type DbClient = typeof prisma | Prisma.TransactionClient;
 
@@ -46,7 +46,7 @@ export async function findOrCreatePaymentForPayable(
   client: DbClient = prisma
 ): Promise<Payment> {
   const existing = await client.payment.findFirst({ where: { payableType, payableId } });
-  const date = formatDate(new Date());
+  const date = today();
 
   if (existing) {
     return client.payment.update({

@@ -2,7 +2,8 @@ import prisma from '../prisma';
 import { z } from 'zod';
 import { HttpError } from '../middleware/HttpError';
 import { releaseReservationTx } from './booking';
-import { TIME_REGEX, addDays, buildCourtSlots, ensureTurnsForRange, formatDate, parseDateString } from './schedule.service';
+import { TIME_REGEX, addDays, buildCourtSlots, ensureTurnsForRange, parseDateString, toMinutes } from './schedule.service';
+import { today } from './clock';
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -52,14 +53,29 @@ export async function createFixedBooking(complexId: string, input: FixedBookingC
     throw new HttpError(400, 'Ese horario no existe en el rango de la cancha.');
   }
 
-  const todayStr = formatDate(new Date());
+  const todayStr = today();
   const startDate = input.startDate && input.startDate > todayStr ? input.startDate : todayStr;
+  if (input.endDate && input.endDate < startDate) {
+    throw new HttpError(400, 'La fecha de fin no puede ser anterior a hoy ni a la fecha de inicio.');
+  }
 
   const duplicate = await prisma.fixedBooking.findFirst({
     where: { courtId: court.id, dayOfWeek: input.dayOfWeek, startTime: input.startTime, active: true },
   });
   if (duplicate) {
     throw new HttpError(409, `Ya existe un turno fijo en ese horario (${duplicate.guestName}).`);
+  }
+
+  // A professor's class schedule already owns that slot every week.
+  const start = toMinutes(input.startTime);
+  const classSchedule = (
+    await prisma.classSchedule.findMany({
+      where: { courtId: court.id, active: true, daysOfWeek: { has: input.dayOfWeek } },
+      include: { professor: { select: { name: true } } },
+    })
+  ).find((cs) => start >= toMinutes(cs.startTime) && start + court.slotMinutes <= toMinutes(cs.endTime));
+  if (classSchedule) {
+    throw new HttpError(409, `Ese horario es parte de las clases de ${classSchedule.professor.name} (${classSchedule.startTime} a ${classSchedule.endTime}).`);
   }
 
   const fixedBooking = await prisma.fixedBooking.create({
@@ -104,7 +120,7 @@ export async function deleteFixedBooking(complexId: string, fixedBookingId: stri
     throw new HttpError(404, 'Turno fijo no encontrado.');
   }
 
-  const todayStr = formatDate(new Date());
+  const todayStr = today();
 
   await prisma.$transaction(async (tx) => {
     await tx.fixedBooking.update({ where: { id: fixedBookingId }, data: { active: false } });

@@ -13,8 +13,32 @@ export function parseDate(dateStr: string): Date {
   return new Date(y, m - 1, d);
 }
 
+// "Today" and "now" follow Argentina's time, same as the server, whatever
+// the timezone of the device.
+const APP_TIMEZONE = 'America/Argentina/Buenos_Aires';
+const nowFormatter = new Intl.DateTimeFormat('en-CA', {
+  timeZone: APP_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+export function nowParts(): { today: string; time: string } {
+  const p = Object.fromEntries(nowFormatter.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { today: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` };
+}
+
 export function todayStr(): string {
-  return formatDate(new Date());
+  return nowParts().today;
+}
+
+/** A turn or class has started once its start time is reached (it can't be booked or cancelled anymore). */
+export function hasStarted(date: string, startTime: string): boolean {
+  const now = nowParts();
+  return date < now.today || (date === now.today && startTime <= now.time);
 }
 
 export function addDays(dateStr: string, days: number): string {

@@ -6,7 +6,7 @@ import type {
   Turn,
   OwnerTurn,
   Reservation,
-  ScheduleConflict,
+  FixedBookingConflict,
   OwnerReservationView,
   MyReservation,
   Payment,
@@ -34,6 +34,46 @@ export class ApiError extends Error {
   }
 }
 
+/** Status 0: the request never got an HTTP answer (offline, server down, CORS). */
+export const NETWORK_ERROR_STATUS = 0;
+
+/** Fired when the session expired mid-use, so the app can sign the user out. */
+export const SESSION_EXPIRED_EVENT = 'tuturnito:session-expired';
+
+/**
+ * The message shown to the user for a failed request. The server's own text
+ * is kept when it's meant for people (business rules, validation); generic or
+ * technical cases get a clear message per status code instead.
+ */
+function friendlyMessage(status: number, data: any): string {
+  const serverMsg: string | null = data && typeof data === 'object' ? data.error || data.message || null : null;
+
+  switch (true) {
+    case status === 401:
+      return !serverMsg || serverMsg.startsWith('No autenticado')
+        ? 'Tu sesión venció o no iniciaste sesión. Ingresá de nuevo para continuar.'
+        : serverMsg; // e.g. wrong email or password
+    case status === 403:
+      return serverMsg || 'No tenés permiso para hacer esta acción.';
+    case status === 404:
+      return serverMsg && !serverMsg.startsWith('Ruta ')
+        ? serverMsg
+        : 'No encontramos lo que buscabas. Puede que se haya eliminado.';
+    case status === 413:
+      return serverMsg || 'Los datos enviados son demasiado grandes.';
+    case status === 429:
+      return serverMsg || 'Demasiadas solicitudes seguidas. Esperá un momento y probá de nuevo.';
+    // Our API always explains its own 500s: one without a message (or a
+    // gateway error) came from a proxy because the server didn't answer.
+    case status === 502 || status === 503 || status === 504 || (status >= 500 && !serverMsg):
+      return 'El servidor no está disponible en este momento. Probá de nuevo en unos minutos.';
+    case status >= 500:
+      return serverMsg!;
+    default:
+      return serverMsg || `No se pudo completar la solicitud (error ${status}).`;
+  }
+}
+
 async function request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE_URL}${endpoint}`;
   const headers = new Headers(options.headers || {});
@@ -42,24 +82,32 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include', // Sends & receives httpOnly cookies
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include', // Sends & receives httpOnly cookies
+    });
+  } catch {
+    throw new ApiError(NETWORK_ERROR_STATUS, 'No hay conexión con el servidor. Revisá tu conexión a internet y probá de nuevo.');
+  }
 
   const contentType = response.headers.get('content-type');
   let data: any = null;
 
-  if (contentType && contentType.includes('application/json')) {
-    data = await response.json();
-  } else {
-    data = await response.text();
+  try {
+    data = contentType && contentType.includes('application/json') ? await response.json() : await response.text();
+  } catch {
+    data = null;
   }
 
   if (!response.ok) {
-    const errorMsg = data?.error || data?.message || 'Error en la solicitud al servidor';
-    throw new ApiError(response.status, errorMsg, data);
+    // A 401 outside the auth endpoints means the session expired while in use.
+    if (response.status === 401 && !endpoint.startsWith('/auth/')) {
+      window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+    }
+    throw new ApiError(response.status, friendlyMessage(response.status, data), data);
   }
 
   return data as T;
@@ -87,10 +135,9 @@ interface AuthResponse {
 
 interface SaveCourtsResult {
   message: string;
-  success?: boolean;
-  hasConflicts?: boolean;
-  conflictType?: 'COURT_DELETION' | 'RANGE_CHANGE';
-  conflicts?: ScheduleConflict[];
+  success: boolean;
+  /** Fixed bookings ended because their slot no longer exists. */
+  deactivatedFixedBookings: FixedBookingConflict[];
 }
 
 export interface CourtInput {

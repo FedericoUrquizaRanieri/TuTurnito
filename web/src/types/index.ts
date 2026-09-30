@@ -135,6 +135,34 @@ export interface ScheduleConflict {
   type: ReservationType;
 }
 
+/** A professor's class schedule that a courts change would break (blocks the save). */
+export interface ClassScheduleConflict {
+  classScheduleId: string;
+  professorName: string;
+  courtName: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+}
+
+/** A fixed booking whose slot disappears with a courts change (ended when the change is confirmed). */
+export interface FixedBookingConflict {
+  fixedBookingId: string;
+  courtName: string;
+  dayOfWeek: number;
+  startTime: string;
+  guestName: string;
+}
+
+export type CourtsConflictType = 'CLASS_SCHEDULES' | 'COURT_DELETION' | 'RANGE_CHANGE';
+
+export interface CourtsConflictData {
+  conflictType: CourtsConflictType;
+  conflicts: ScheduleConflict[];
+  classSchedules: ClassScheduleConflict[];
+  fixedBookings: FixedBookingConflict[];
+}
+
 export interface Payment {
   id: string;
   payableType: PayableType;
