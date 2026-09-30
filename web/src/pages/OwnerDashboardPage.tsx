@@ -265,7 +265,7 @@ export const OwnerDashboardPage: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+            <div className="form-row-2">
               <div className="form-group">
                 <label className="form-label">Ciudad / Zona *</label>
                 <input
@@ -291,7 +291,7 @@ export const OwnerDashboardPage: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+            <div className="form-row-2">
               <div className="form-group">
                 <label className="form-label">Teléfono / WhatsApp</label>
                 <input
@@ -656,7 +656,7 @@ export const OwnerDashboardPage: React.FC = () => {
                   </p>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                <div className="form-row-2">
                   <div className="form-group">
                     <label className="form-label">Ciudad / Localidad *</label>
                     <input
@@ -680,7 +680,7 @@ export const OwnerDashboardPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+                <div className="form-row-2">
                   <div className="form-group">
                     <label className="form-label">Teléfono / WhatsApp</label>
                     <input

@@ -76,22 +76,15 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   return (
     <div className="modal-overlay">
       <div className="modal-content">
-        <button
-          onClick={onClose}
-          style={{
-            position: 'absolute',
-            top: '1.25rem',
-            right: '1.25rem',
-            color: 'var(--text-muted)',
-          }}
-        >
+        <button onClick={onClose} aria-label="Cerrar" className="icon-btn modal-close">
           <X size={20} />
         </button>
 
         {!confirmed ? (
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem', paddingRight: '2rem' }}>
               <div style={{
+                flexShrink: 0,
                 width: '36px',
                 height: '36px',
                 borderRadius: '10px',
@@ -182,7 +175,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                       type="checkbox"
                       checked={isClass}
                       onChange={(e) => setIsClass(e.target.checked)}
-                      style={{ accentColor: 'var(--accent-secondary)', width: '16px', height: '16px' }}
+                      style={{ flexShrink: 0, accentColor: 'var(--accent-secondary)', width: '16px', height: '16px' }}
                     />
                     <span style={{ fontSize: '0.825rem', fontWeight: 600 }}>Es clase</span>
                   </label>
@@ -201,7 +194,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
+              <div className="form-row-2">
                 <div className="form-group">
                   <label className="form-label">Teléfono / WhatsApp *</label>
                   <input
@@ -248,7 +241,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                       type="checkbox"
                       checked={wantsPlayers}
                       onChange={(e) => setWantsPlayers(e.target.checked)}
-                      style={{ accentColor: 'var(--accent-secondary)', width: '16px', height: '16px' }}
+                      style={{ flexShrink: 0, accentColor: 'var(--accent-secondary)', width: '16px', height: '16px' }}
                     />
                     <span style={{ fontWeight: 700, fontSize: '0.875rem' }}>Me faltan jugadores</span>
                   </label>
@@ -284,20 +277,18 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 </span>
               </div>
 
-              <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <div className="modal-actions">
                 <button
                   type="button"
                   className="btn btn-secondary"
                   onClick={onClose}
-                  style={{ flex: 1 }}
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="btn btn-lime"
+                  className="btn btn-lime modal-actions-main"
                   disabled={loading}
-                  style={{ flex: 2 }}
                 >
                   <Sparkles size={16} />
                   <span>{loading ? 'Confirmando...' : 'Confirmar reserva'}</span>

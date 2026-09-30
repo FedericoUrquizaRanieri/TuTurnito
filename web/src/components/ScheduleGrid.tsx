@@ -107,7 +107,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                 {/* Turns Grid for this court */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(145px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(125px, 1fr))',
                   gap: '0.85rem',
                 }}>
                   {courtTurns.map((turn) => {

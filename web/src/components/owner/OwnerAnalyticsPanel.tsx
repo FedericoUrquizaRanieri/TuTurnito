@@ -126,6 +126,7 @@ export const OwnerAnalyticsPanel: React.FC<{ complexId: string }> = ({ complexId
               {data.byCourt.length === 0 ? (
                 <EmptyState message="Sin datos en este período." padding="1.5rem" />
               ) : (
+                <div style={{ overflowX: 'auto' }}>
                 <table className="analytics-table">
                   <thead>
                     <tr>
@@ -146,6 +147,7 @@ export const OwnerAnalyticsPanel: React.FC<{ complexId: string }> = ({ complexId
                     ))}
                   </tbody>
                 </table>
+                </div>
               )}
             </ChartCard>
           </div>

@@ -103,7 +103,7 @@ export const ProfilePage: React.FC = () => {
                 type="checkbox"
                 checked={emailReminders}
                 onChange={(e) => setEmailReminders(e.target.checked)}
-                style={{ accentColor: 'var(--accent-primary)', width: '18px', height: '18px', marginTop: '0.1rem' }}
+                style={{ flexShrink: 0, accentColor: 'var(--accent-primary)', width: '18px', height: '18px', marginTop: '0.1rem' }}
               />
               <span>
                 <span style={{ fontWeight: 600, display: 'block' }}>Recibir recordatorios por email</span>

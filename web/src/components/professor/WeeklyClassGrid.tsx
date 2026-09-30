@@ -154,7 +154,7 @@ const AddStudentModal: React.FC<AddStudentModalProps> = ({ cls, students, onAdde
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '440px' }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button onClick={onClose} aria-label="Cerrar" style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', color: 'var(--text-muted)' }}>
+        <button onClick={onClose} aria-label="Cerrar" className="icon-btn modal-close">
           <X size={20} />
         </button>
         <h3 style={{ fontSize: '1.2rem', fontWeight: 800 }}>Agregar alumno</h3>

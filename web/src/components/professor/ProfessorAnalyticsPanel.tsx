@@ -1,16 +1,61 @@
 import React, { useEffect, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
-import { DollarSign, Wallet, AlertCircle, TrendingUp, CalendarCheck, Users, Percent } from 'lucide-react';
+import { DollarSign, Wallet, TrendingUp, AlertCircle, CalendarCheck, Users, Percent, Building } from 'lucide-react';
 import { api } from '../../api/client';
 import { useToast } from '../../context/ToastContext';
-import { StatCard } from '../StatCard';
 import { EmptyState } from '../EmptyState';
 import { WhatsappButton } from '../WhatsappButton';
-import { SERIES, money, moneyShort, percent, RangePicker, RangeKey, rangeFor, ChartCard, SeriesLegend, makeTooltip, AXIS_PROPS, GRID_PROPS } from '../analytics/charts';
+import {
+  SERIES,
+  money,
+  moneyShort,
+  percent,
+  RangePicker,
+  RangeKey,
+  rangeFor,
+  ChartCard,
+  SeriesLegend,
+  makeTooltip,
+  AXIS_PROPS,
+  GRID_PROPS,
+  MetricGroup,
+} from '../analytics/charts';
 import { shortDateLabel } from '../../lib/dates';
 import type { ProfessorAnalytics } from '../../types';
 
 const MoneyTooltip = makeTooltip((v) => money(v));
+
+// Monday first, like the weekly class grid.
+const WEEK_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Free seats of the weekly classes, grouped by weekday as time chips. */
+function FreeSeatsByDay({ classes, multiComplex }: { classes: ProfessorAnalytics['classesWithRoom']; multiComplex: boolean }) {
+  const days = WEEK_ORDER.map((dow) => ({ dow, items: classes.filter((c) => c.dayOfWeek === dow) })).filter((d) => d.items.length > 0);
+  return (
+    <div>
+      {days.map((d) => (
+        <div key={d.dow} className="free-slots-day">
+          <div className="free-slots-day-label">{d.items[0].dayLabel}</div>
+          <div>
+            {d.items.map((c) => (
+              <span
+                key={`${c.complexName}_${c.courtName}_${c.startTime}`}
+                className="free-slot-chip"
+                title={`${c.complexName} · ${c.courtName}: ${c.enrolled} de 4 alumnos`}
+              >
+                <strong>{c.startTime}</strong>
+                <span className="seats">{c.enrolled === 0 ? 'vacía' : plural(c.free, 'libre', 'libres')}</span>
+                {multiComplex && <span className="seats">· {c.complexName}</span>}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 /** Professor's "Analíticas" tab: income vs. court cost, attendance, class occupancy and students. */
 export const ProfessorAnalyticsPanel: React.FC = () => {
@@ -34,9 +79,12 @@ export const ProfessorAnalyticsPanel: React.FC = () => {
   }, [rangeKey, toast]);
 
   const k = data?.kpis;
+  const complexNames = new Set(data?.classesWithRoom.map((c) => c.complexName) ?? []);
+  const multiComplex = (data?.byComplex.length ?? 0) > 1 || complexNames.size > 1;
+  const places = data ? [...new Set(data.classesWithRoom.map((c) => `${c.complexName} · ${c.courtName}`))] : [];
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
           <h3 className="panel-section-title">Tus números</h3>
@@ -51,17 +99,42 @@ export const ProfessorAnalyticsPanel: React.FC = () => {
         <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--text-muted)' }}>Calculando...</div>
       ) : !data || !k ? null : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', opacity: loading ? 0.6 : 1, transition: 'opacity 0.2s' }}>
-          <div className="kpi-grid">
-            <StatCard icon={<DollarSign size={22} />} iconBg="rgba(58, 122, 240, 0.15)" iconColor="var(--accent-primary)" label={`Facturado (${k.classesGiven} clases)`} value={money(k.billed)} />
-            <StatCard icon={<Wallet size={22} />} iconBg="rgba(52, 199, 149, 0.15)" iconColor="var(--status-available)" label="Cobrado" value={money(k.collected)} />
-            <StatCard icon={<TrendingUp size={22} />} iconBg="rgba(43, 179, 163, 0.15)" iconColor="var(--accent-cyan)" label={`Margen (canchas: ${money(k.courtCost)})`} value={money(k.margin)} />
-            <StatCard icon={<AlertCircle size={22} />} iconBg="rgba(242, 165, 61, 0.15)" iconColor="var(--accent-secondary)" label={`Deuda hoy (${k.studentsOwing} alumnos)`} value={money(k.debtTotal)} />
-            <StatCard icon={<CalendarCheck size={22} />} iconBg="rgba(58, 122, 240, 0.15)" iconColor="var(--accent-primary)" label="Asistencia" value={percent(k.attendancePct)} />
-            <StatCard icon={<Percent size={22} />} iconBg="rgba(58, 122, 240, 0.15)" iconColor="var(--accent-primary)" label={`Cupos ocupados (${k.freeSeats} libres)`} value={percent(k.occupancyPct)} />
-            <StatCard icon={<Users size={22} />} iconBg="rgba(43, 179, 163, 0.15)" iconColor="var(--accent-cyan)" label={`Alumnos activos (+${k.newStudents} / −${k.leftStudents})`} value={k.activeStudents} />
-          </div>
+          <MetricGroup
+            title="Plata del período"
+            metrics={[
+              { label: 'Facturado', value: money(k.billed), sub: plural(k.classesGiven, 'clase dada', 'clases dadas'), icon: <DollarSign size={14} /> },
+              { label: 'Costo de canchas', value: money(k.courtCost), sub: 'lo que te cobra el complejo', icon: <Building size={14} /> },
+              {
+                label: 'Margen',
+                value: money(k.margin),
+                sub: k.margin < 0 ? 'las canchas costaron más de lo facturado' : 'facturado menos canchas',
+                tone: k.margin < 0 ? 'negative' : 'default',
+                icon: <TrendingUp size={14} />,
+              },
+              { label: 'Cobrado', value: money(k.collected), sub: 'pagos registrados', icon: <Wallet size={14} /> },
+            ]}
+          />
 
-          <ChartCard title="Ingresos y costo de canchas" subtitle={`Por ${data.range.granularity === 'day' ? 'día' : data.range.granularity === 'week' ? 'semana' : 'mes'}. El costo de canchas es lo que te cobra el complejo por los turnos de tus clases.`}>
+          <MetricGroup
+            title="Alumnos y clases"
+            metrics={[
+              {
+                label: 'Deuda a hoy',
+                value: money(k.debtTotal),
+                sub: k.studentsOwing > 0 ? plural(k.studentsOwing, 'alumno debe', 'alumnos deben') : 'nadie debe',
+                tone: k.debtTotal > 0 ? 'warning' : 'default',
+                icon: <AlertCircle size={14} />,
+              },
+              { label: 'Asistencia', value: percent(k.attendancePct), sub: 'de las clases del período', icon: <CalendarCheck size={14} /> },
+              { label: 'Cupos ocupados', value: percent(k.occupancyPct), sub: plural(k.freeSeats, 'lugar libre', 'lugares libres'), icon: <Percent size={14} /> },
+              { label: 'Alumnos activos', value: String(k.activeStudents), sub: `+${k.newStudents} altas · −${k.leftStudents} bajas`, icon: <Users size={14} /> },
+            ]}
+          />
+
+          <ChartCard
+            title="Ingresos y costo de canchas"
+            subtitle={`Por ${data.range.granularity === 'month' ? 'mes' : 'semana'}. Tocá o pasá el mouse por las barras para ver los montos.`}
+          >
             <SeriesLegend
               items={[
                 { label: 'Facturado a alumnos', color: SERIES[0] },
@@ -71,25 +144,52 @@ export const ProfessorAnalyticsPanel: React.FC = () => {
             />
             <div style={{ height: 260 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barGap={2} barCategoryGap="22%">
+                <BarChart data={data.series} margin={{ top: 4, right: 4, left: 0, bottom: 0 }} barGap={3} barCategoryGap="28%">
                   <CartesianGrid {...GRID_PROPS} />
-                  <XAxis dataKey="label" {...AXIS_PROPS} interval="preserveStartEnd" minTickGap={12} />
-                  <YAxis {...AXIS_PROPS} tickFormatter={moneyShort} width={48} />
+                  <XAxis dataKey="label" {...AXIS_PROPS} tickFormatter={(l) => (data.range.granularity === 'month' ? l : `Sem. ${l}`)} />
+                  <YAxis {...AXIS_PROPS} tickFormatter={moneyShort} width={52} />
                   <Tooltip content={<MoneyTooltip />} cursor={{ fill: 'rgba(244, 246, 241, 0.05)' }} />
-                  <Bar dataKey="billed" name="Facturado" fill={SERIES[0]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="courtCost" name="Costo de canchas" fill={SERIES[1]} radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="collected" name="Cobrado" fill={SERIES[2]} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="billed" name="Facturado" fill={SERIES[0]} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                  <Bar dataKey="courtCost" name="Costo de canchas" fill={SERIES[1]} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                  <Bar dataKey="collected" name="Cobrado" fill={SERIES[2]} radius={[4, 4, 0, 0]} maxBarSize={36} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           </ChartCard>
 
           <div className="analytics-grid">
+            <ChartCard title="Alumnos que deben" subtitle="Saldo a hoy, de todas las clases">
+              {data.debtors.length === 0 ? (
+                <EmptyState message="Nadie te debe. ¡Bien ahí!" padding="1.5rem" />
+              ) : (
+                <table className="analytics-table">
+                  <tbody>
+                    {data.debtors.map((d) => (
+                      <tr key={d.studentId}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{d.name}</div>
+                          {d.phone && <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>{d.phone}</div>}
+                        </td>
+                        <td className="num" style={{ color: 'var(--accent-secondary)', fontWeight: 700 }}>{money(d.owes)}</td>
+                        <td className="num" style={{ width: 48 }}>
+                          <WhatsappButton
+                            phone={d.phone}
+                            title={`WhatsApp a ${d.name}`}
+                            text={`Hola ${d.name.split(' ')[0]}! Te paso el saldo de las clases: ${money(d.owes)}.`}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </ChartCard>
+
             <ChartCard title="Asistencia por alumno" subtitle="Primero los que más faltan. Las faltas no se cobran.">
               {data.attendance.length === 0 ? (
                 <EmptyState message="Sin clases dadas en este período." padding="1.5rem" />
               ) : (
-                <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+                <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                   <table className="analytics-table">
                     <thead>
                       <tr>
@@ -105,98 +205,55 @@ export const ProfessorAnalyticsPanel: React.FC = () => {
                           <td>{a.name}</td>
                           <td className="num">{a.attended}</td>
                           <td className="num">{a.missed}</td>
-                          <td className="num" style={{ color: a.pct < 70 ? 'var(--accent-secondary)' : undefined, fontWeight: 700 }}>{percent(a.pct)}</td>
+                          <td className="num" style={{ fontWeight: 700, color: a.pct < 70 ? 'var(--accent-secondary)' : undefined }}>{percent(a.pct)}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Alumnos que deben" subtitle="Saldo a hoy, de todas las clases">
-              {data.debtors.length === 0 ? (
-                <EmptyState message="Nadie te debe. ¡Bien ahí!" padding="1.5rem" />
-              ) : (
-                <table className="analytics-table">
-                  <tbody>
-                    {data.debtors.map((d) => (
-                      <tr key={d.studentId}>
-                        <td>
-                          <div>{d.name}</div>
-                          {d.phone && <div style={{ fontSize: '0.72rem', color: 'var(--text-subtle)' }}>{d.phone}</div>}
-                        </td>
-                        <td className="num" style={{ color: 'var(--accent-secondary)', fontWeight: 700 }}>{money(d.owes)}</td>
-                        <td className="num">
-                          <WhatsappButton
-                            phone={d.phone}
-                            title={`WhatsApp a ${d.name}`}
-                            text={`Hola ${d.name.split(' ')[0]}! Te paso el saldo de las clases: ${money(d.owes)}.`}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               )}
             </ChartCard>
           </div>
 
-          <div className="analytics-grid">
-            <ChartCard title="Clases con lugares libres" subtitle="Cupos para sumar alumnos nuevos (máximo 4 por clase)">
-              {data.classesWithRoom.length === 0 ? (
-                <EmptyState message="Todas tus clases están completas." padding="1.5rem" />
-              ) : (
-                <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
-                  <table className="analytics-table">
-                    <thead>
-                      <tr>
-                        <th>Clase</th>
-                        <th>Lugar</th>
-                        <th className="num">Libres</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.classesWithRoom.map((c) => (
-                        <tr key={`${c.complexName}_${c.courtName}_${c.dayOfWeek}_${c.startTime}`}>
-                          <td style={{ fontWeight: 600 }}>{c.dayLabel} {c.startTime}</td>
-                          <td style={{ color: 'var(--text-muted)' }}>{c.complexName} · {c.courtName}</td>
-                          <td className="num">{c.free} de 4</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </ChartCard>
+          <ChartCard
+            title="Lugares libres en tus clases"
+            subtitle={
+              data.classesWithRoom.length === 0
+                ? 'Máximo 4 alumnos por clase.'
+                : `Máximo 4 alumnos por clase${!multiComplex && places.length === 1 ? ` · ${places[0]}` : ''}. Tocá o pasá el mouse por cada horario para ver el detalle.`
+            }
+          >
+            {data.classesWithRoom.length === 0 ? (
+              <EmptyState message="Todas tus clases están completas." padding="1.5rem" />
+            ) : (
+              <FreeSeatsByDay classes={data.classesWithRoom} multiComplex={multiComplex} />
+            )}
+          </ChartCard>
 
+          {multiComplex && (
             <ChartCard title="Por complejo">
-              {data.byComplex.length === 0 ? (
-                <EmptyState message="Sin clases dadas en este período." padding="1.5rem" />
-              ) : (
-                <table className="analytics-table">
-                  <thead>
-                    <tr>
-                      <th>Complejo</th>
-                      <th className="num">Clases</th>
-                      <th className="num">Facturado</th>
-                      <th className="num">Canchas</th>
+              <table className="analytics-table">
+                <thead>
+                  <tr>
+                    <th>Complejo</th>
+                    <th className="num">Clases</th>
+                    <th className="num">Facturado</th>
+                    <th className="num">Canchas</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.byComplex.map((c) => (
+                    <tr key={c.complexId}>
+                      <td>{c.name}</td>
+                      <td className="num">{c.classesGiven}</td>
+                      <td className="num">{money(c.billed)}</td>
+                      <td className="num">{money(c.courtCost)}</td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {data.byComplex.map((c) => (
-                      <tr key={c.complexId}>
-                        <td>{c.name}</td>
-                        <td className="num">{c.classesGiven}</td>
-                        <td className="num">{money(c.billed)}</td>
-                        <td className="num">{money(c.courtCost)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
+                  ))}
+                </tbody>
+              </table>
             </ChartCard>
-          </div>
+          )}
         </div>
       )}
     </div>

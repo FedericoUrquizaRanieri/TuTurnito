@@ -98,7 +98,7 @@ export const TurnActionModal: React.FC<TurnActionModalProps> = ({ complexId, tur
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" style={{ maxWidth: '480px' }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <button onClick={onClose} aria-label="Cerrar" style={{ position: 'absolute', top: '1.25rem', right: '1.25rem', color: 'var(--text-muted)' }}>
+        <button onClick={onClose} aria-label="Cerrar" className="icon-btn modal-close">
           <X size={20} />
         </button>
 
