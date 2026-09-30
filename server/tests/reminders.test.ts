@@ -26,7 +26,9 @@ async function book(agent: any, complexId: string, courtId: string, date: string
   const turn = turns.find((t: any) => t.courtId === courtId && t.startTime === startTime);
   const res = await agent.post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Jugador', guestPhone: '2911234567', ...body });
   expect(res.status).toBe(201);
-  return res.body.reservation;
+  // The database stamps createdAt with the real clock; align it with the
+  // frozen one or "how far ahead it was booked" depends on the time of day.
+  return prisma.reservation.update({ where: { id: res.body.reservation.id }, data: { createdAt: new Date() } });
 }
 
 describe('email reminders', () => {

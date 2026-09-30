@@ -180,4 +180,15 @@ describe('security', () => {
       verify.mockRestore();
     }
   });
+  it('new accounts need 8+ character passwords and a complex photo must be an https link', async () => {
+    const short = await request(app).post('/api/auth/register').send({ name: 'Corta', email: uniqueEmail('short'), password: 'abc123', role: 'JUGADOR' });
+    expect(short.status).toBe(400);
+
+    const { owner, complex } = await ownerWithComplex();
+    for (const imageUrl of ['javascript:alert(1)', 'http://inseguro.com/a.jpg', 'data:image/png;base64,AAAA']) {
+      expect((await owner.put(`/api/complexes/${complex.id}`).send({ imageUrl })).status).toBe(400);
+    }
+    expect((await owner.put(`/api/complexes/${complex.id}`).send({ imageUrl: 'https://images.unsplash.com/photo.jpg' })).status).toBe(200);
+    expect((await owner.put(`/api/complexes/${complex.id}`).send({ imageUrl: '' })).status).toBe(200);
+  });
 });

@@ -16,6 +16,13 @@ import { HttpError } from './middleware/HttpError';
 import { startReminderJob } from './jobs/reminders';
 
 const app = express();
+
+// Behind a hosting proxy (Render, Railway, nginx...) the client's IP comes in
+// X-Forwarded-For: set TRUST_PROXY to the number of proxies in front (usually
+// 1) so rate limits count real clients instead of the proxy.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
 const PORT = process.env.PORT || 4000;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -73,7 +80,8 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '10mb' }));
+// Every payload is a small JSON form; a big one is someone probing.
+app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.use('/api', generalLimiter);
 app.use('/api/auth', authLimiter);

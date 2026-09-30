@@ -16,3 +16,9 @@ function requireEnv(name: string): string {
 }
 
 export const JWT_SECRET = requireEnv('JWT_SECRET');
+
+// A short secret can be brute-forced offline from any token, which lets
+// anyone sign sessions as any user (owners included).
+if (process.env.NODE_ENV === 'production' && JWT_SECRET.length < 32) {
+  throw new Error('JWT_SECRET tiene que tener al menos 32 caracteres en producción. Generá uno con: openssl rand -base64 48');
+}

@@ -241,9 +241,9 @@ export const AuthPage: React.FC = () => {
             <input
               type="password"
               required
-              minLength={6}
+              minLength={mode === 'register' ? 8 : undefined}
               className="form-input"
-              placeholder="Mínimo 6 caracteres"
+              placeholder={mode === 'register' ? 'Mínimo 8 caracteres' : 'Tu contraseña'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />

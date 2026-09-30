@@ -14,10 +14,10 @@ import { hashPassword } from '../services/auth.service';
 const router = Router();
 
 const registerSchema = z.object({
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
-  phone: z.string().optional(),
+  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(80),
+  email: z.string().email('Email inválido').max(254),
+  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres').max(128),
+  phone: z.string().max(30).optional(),
   // Owner accounts are created by hand when a complex joins (npm run create-owner).
   role: z.enum(['JUGADOR', 'PROFESOR'], {
     errorMap: () => ({ message: 'El rol debe ser JUGADOR o PROFESOR' }),
@@ -25,18 +25,18 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'La contraseña es requerida'),
+  email: z.string().email('Email inválido').max(254),
+  password: z.string().min(1, 'La contraseña es requerida').max(128),
 });
 
 const updateProfileSchema = z.object({
-  name: z.string().min(2).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
+  name: z.string().min(2).max(80).optional(),
+  email: z.string().email().max(254).optional(),
+  phone: z.string().max(30).optional(),
   emailReminders: z.boolean().optional(),
   // Required to change the email or the password.
-  currentPassword: z.string().optional(),
-  newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres').optional(),
+  currentPassword: z.string().max(128).optional(),
+  newPassword: z.string().min(8, 'La nueva contraseña debe tener al menos 8 caracteres').max(128).optional(),
 });
 
 function createToken(payload: UserPayload): string {
