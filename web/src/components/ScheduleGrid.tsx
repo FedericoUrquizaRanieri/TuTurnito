@@ -2,16 +2,18 @@ import React, { useState } from 'react';
 import { Calendar as CalendarIcon, Sparkles, GraduationCap, Trophy } from 'lucide-react';
 import { ReservationModal } from './ReservationModal';
 import { hasStarted } from '../lib/dates';
-import type { Turn } from '../types';
+import type { PublicTurn } from '../types';
 
 // Re-exported under this name since ComplexDetailPage.tsx already imports
 // PublicTurnData from this module — the shape lives in web/src/types.
-export type PublicTurnData = Turn;
+export type PublicTurnData = PublicTurn;
 
 interface ScheduleGridProps {
   complexId: string;
   complexName?: string;
   isApprovedProfessor?: boolean;
+  /** The complex's cancellation policy, shown before booking. */
+  cancellationHours?: number;
   turns?: PublicTurnData[];
   onRefreshTurns?: () => void;
 }
@@ -21,6 +23,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   complexId,
   complexName = 'Complejo',
   isApprovedProfessor = false,
+  cancellationHours = 0,
   turns = [],
   onRefreshTurns,
 }) => {
@@ -39,6 +42,7 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
           complexName={complexName}
           complexId={complexId}
           isApprovedProfessor={isApprovedProfessor}
+          cancellationHours={cancellationHours}
           onSuccess={() => {
             if (onRefreshTurns) onRefreshTurns();
           }}
@@ -160,6 +164,9 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                             marginBottom: '0.4rem',
                           }}>
                             ${turn.price.toLocaleString('es-AR')}
+                            {isAvail && turn.court.basePrice !== undefined && turn.price < turn.court.basePrice && (
+                              <span className="badge badge-promo" style={{ marginLeft: '0.4rem', verticalAlign: 'middle' }}>Promo</span>
+                            )}
                           </div>
 
                           {isAvail ? (
@@ -184,8 +191,8 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
                               <Trophy size={11} /> Torneo
                             </span>
                           ) : (
-                            <span className="badge badge-blocked" style={{ width: '100%', justifyContent: 'center' }}>
-                              Bloqueado
+                            <span className="badge badge-blocked" style={{ width: '100%', justifyContent: 'center' }} title={turn.label || undefined}>
+                              {turn.label || 'Bloqueado'}
                             </span>
                           )}
                         </div>

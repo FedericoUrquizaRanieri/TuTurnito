@@ -11,7 +11,8 @@ import {
   Menu,
   X,
   ShieldCheck,
-  ChevronDown
+  ChevronDown,
+  Users,
 } from 'lucide-react';
 
 export const Navbar: React.FC = () => {
@@ -60,6 +61,11 @@ export const Navbar: React.FC = () => {
         <nav style={{ display: 'none', alignItems: 'center', gap: '2rem' }} className="desktop-nav">
           <Link to="/" className={`nav-link ${isActive('/') ? 'active' : ''}`}>
             Complejos
+          </Link>
+
+          <Link to="/partidos" className={`nav-link ${isActive('/partidos') ? 'active' : ''}`}>
+            <Users size={16} />
+            Partidos abiertos
           </Link>
 
           {user && (
@@ -237,6 +243,13 @@ export const Navbar: React.FC = () => {
             style={{ padding: '0.5rem 0', fontWeight: 600, color: 'var(--text-main)' }}
           >
             Complejos
+          </Link>
+          <Link
+            to="/partidos"
+            onClick={() => setMobileOpen(false)}
+            style={{ padding: '0.5rem 0', fontWeight: 600, color: 'var(--text-main)' }}
+          >
+            Partidos abiertos
           </Link>
           {user && (
             <Link

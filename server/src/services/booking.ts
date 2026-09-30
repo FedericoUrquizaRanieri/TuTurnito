@@ -1,4 +1,5 @@
-import { Prisma, ReservationType } from '@prisma/client';
+import { CancelledBy, Prisma, ReservationType } from '@prisma/client';
+import { minutesUntil } from './clock';
 
 export interface BookTurnInput {
   complexId: string;
@@ -76,12 +77,34 @@ export async function bookTurnTx(
   return { reservation, payment };
 }
 
-/** Undoes a booking inside the caller's transaction: frees the turn, drops the payment and the reservation row. */
+/**
+ * Undoes a booking inside the caller's transaction: frees the turn, drops the
+ * payment and the reservation row, and records the cancellation (who and how
+ * far ahead) for the owner's analytics.
+ */
 export async function releaseReservationTx(
   tx: Prisma.TransactionClient,
   reservation: { id: string; turnId: string },
-  turnData: { manualOverride?: boolean } = {}
+  options: { manualOverride?: boolean; cancelledBy: CancelledBy }
 ) {
+  const full = await tx.reservation.findUniqueOrThrow({ where: { id: reservation.id }, include: { turn: true } });
+  await tx.reservationCancellation.create({
+    data: {
+      complexId: full.complexId,
+      courtId: full.turn.courtId,
+      date: full.turn.date,
+      startTime: full.turn.startTime,
+      price: full.turn.price,
+      type: full.type,
+      wasFixed: Boolean(full.fixedBookingId),
+      guestName: full.guestName,
+      guestPhone: full.guestPhone,
+      cancelledBy: options.cancelledBy,
+      minutesBefore: Math.max(0, minutesUntil(full.turn.date, full.turn.startTime)),
+    },
+  });
+
+  const turnData = options.manualOverride === undefined ? {} : { manualOverride: options.manualOverride };
   await tx.turn.update({ where: { id: reservation.turnId }, data: { state: 'AVAILABLE', ...turnData } });
   await tx.payment.deleteMany({ where: { payableType: 'RESERVATION', payableId: reservation.id } });
   await tx.reservation.delete({ where: { id: reservation.id } });

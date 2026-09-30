@@ -13,6 +13,9 @@ import {
   fixedBookingCreateSchema,
 } from '../services/fixedBooking.service';
 import { buildPaymentMap, getPaymentsByPayableIds } from '../services/payment.service';
+import { getComplexAnalytics } from '../services/analytics.service';
+import { listPriceRules, savePriceRules, priceRulesUpdateSchema } from '../services/priceRule.service';
+import { listClosures, createClosure, deleteClosure, closureCreateSchema } from '../services/closure.service';
 
 const router = Router({ mergeParams: true });
 
@@ -20,6 +23,7 @@ const ownerOnly = [requireAuth, requireRole('DUEÑO'), requireComplexOwner];
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_OWNER_RANGE_DAYS = 45;
+const MAX_ANALYTICS_RANGE_DAYS = 366;
 
 // GET /api/complexes/:id/schedule (Owner: courts with their range + active fixed bookings)
 router.get(
@@ -91,6 +95,11 @@ router.get(
     const turns = await ensureTurnsForRange(id, from, to);
     const reservationIds = turns.flatMap((t) => (t.reservation ? [t.reservation.id] : []));
     const paymentMap = buildPaymentMap(await getPaymentsByPayableIds('RESERVATION', reservationIds));
+    const openMatches = await prisma.openMatch.findMany({
+      where: { reservationId: { in: reservationIds } },
+      include: { players: { include: { user: { select: { name: true, phone: true } } }, orderBy: { joinedAt: 'asc' } } },
+    });
+    const matchByReservation = new Map(openMatches.map((m) => [m.reservationId, m]));
 
     const courts = await prisma.court.findMany({
       where: { complexId: id, active: true },
@@ -109,6 +118,12 @@ router.get(
             paymentStatus: p?.status || 'PENDING',
             paymentAmount: p ? p.amount : t.price,
             paymentId: p?.id,
+            openMatch: (() => {
+              const m = matchByReservation.get(t.reservation.id);
+              return m
+                ? { spots: m.spots, joinedCount: m.joinedCount, category: m.category, players: m.players.map((pl) => pl.user) }
+                : null;
+            })(),
           },
         };
       }),
@@ -156,6 +171,86 @@ router.delete(
     await deleteFixedBooking(req.params.id as string, req.params.fixedId as string, req.query.cancelFuture === 'true');
     return res.json({ message: 'Turno fijo eliminado.' });
   }, 'Error al eliminar el turno fijo.')
+);
+
+// GET /api/complexes/:id/analytics?from&to (occupancy, revenue, clients, cancellations; up to a year)
+router.get(
+  '/:id/analytics',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { from, to } = req.query;
+    if (typeof from !== 'string' || !DATE_REGEX.test(from) || typeof to !== 'string' || !DATE_REGEX.test(to)) {
+      throw new HttpError(400, 'Los parámetros "from" y "to" deben tener formato YYYY-MM-DD.');
+    }
+    if (to < from) {
+      throw new HttpError(400, 'El parámetro "to" no puede ser anterior a "from".');
+    }
+    const rangeDays = (new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24);
+    if (rangeDays > MAX_ANALYTICS_RANGE_DAYS) {
+      throw new HttpError(400, `El rango de fechas no puede superar los ${MAX_ANALYTICS_RANGE_DAYS} días.`);
+    }
+    const analytics = await getComplexAnalytics(req.params.id as string, from, to);
+    return res.json(analytics);
+  }, 'Error al calcular las analíticas.')
+);
+
+// GET /api/complexes/:id/price-rules (prices by weekday / time slot)
+router.get(
+  '/:id/price-rules',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const rules = await listPriceRules(req.params.id as string);
+    return res.json({ rules });
+  }, 'Error al obtener los precios por franja.')
+);
+
+// PUT /api/complexes/:id/price-rules (replaces every rule, re-prices upcoming free turns)
+router.put(
+  '/:id/price-rules',
+  ...ownerOnly,
+  validate(priceRulesUpdateSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const rules = await savePriceRules(req.params.id as string, req.body.rules);
+    return res.json({ message: 'Precios por franja guardados.', rules });
+  }, 'Error al guardar los precios por franja.')
+);
+
+// GET /api/complexes/:id/closures (upcoming closures: holidays, maintenance)
+router.get(
+  '/:id/closures',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    const closures = await listClosures(req.params.id as string);
+    return res.json({ closures });
+  }, 'Error al obtener los cierres.')
+);
+
+// POST /api/complexes/:id/closures (409 with the affected reservations unless cancelConflicts)
+router.post(
+  '/:id/closures',
+  ...ownerOnly,
+  validate(closureCreateSchema),
+  asyncHandler(async (req: Request, res: Response) => {
+    const result = await createClosure(req.params.id as string, req.body);
+    if ('hasConflicts' in result) {
+      return res.status(409).json({
+        message: 'Hay reservas en esos días. Confirmá para cancelarlas y cerrar igual.',
+        hasConflicts: true,
+        conflicts: result.conflicts,
+      });
+    }
+    return res.status(201).json({ message: 'Cierre creado.', closure: result.closure, cancelled: result.cancelled });
+  }, 'Error al crear el cierre.')
+);
+
+// DELETE /api/complexes/:id/closures/:closureId
+router.delete(
+  '/:id/closures/:closureId',
+  ...ownerOnly,
+  asyncHandler(async (req: Request, res: Response) => {
+    await deleteClosure(req.params.id as string, req.params.closureId as string);
+    return res.json({ message: 'Cierre eliminado.' });
+  }, 'Error al eliminar el cierre.')
 );
 
 export default router;

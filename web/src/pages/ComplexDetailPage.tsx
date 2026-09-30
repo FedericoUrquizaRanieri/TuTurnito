@@ -6,6 +6,7 @@ import { useToast } from '../context/ToastContext';
 import { ScheduleGrid, PublicTurnData } from '../components/ScheduleGrid';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { DatePillStrip } from '../components/DatePillStrip';
+import { ComplexOpenMatches } from '../components/openMatch/ComplexOpenMatches';
 import { todayStr } from '../lib/dates';
 import { getComplexGallery } from '../lib/stockPhotos';
 import {
@@ -17,7 +18,8 @@ import {
   GraduationCap,
   LayoutDashboard,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  CalendarX,
 } from 'lucide-react';
 
 export const ComplexDetailPage: React.FC = () => {
@@ -220,6 +222,14 @@ export const ComplexDetailPage: React.FC = () => {
                     <span>{complex.phone}</span>
                   </div>
                 )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <CalendarX size={16} color="var(--text-muted)" />
+                  <span>
+                    {complex.cancellationHours
+                      ? `Cancelación desde la app hasta ${complex.cancellationHours} h antes del turno`
+                      : 'Cancelación desde la app hasta que empiece el turno'}
+                  </span>
+                </div>
               </div>
 
               {/* Owner and Professor Actions */}
@@ -329,11 +339,14 @@ export const ComplexDetailPage: React.FC = () => {
             complexId={complex.id}
             complexName={complex.name}
             isApprovedProfessor={isApprovedProfessor}
+            cancellationHours={complex.cancellationHours ?? 0}
             turns={turns}
             onRefreshTurns={fetchTurns}
           />
         )}
       </section>
+
+      <ComplexOpenMatches complexId={complex.id} refreshKey={turns} />
     </div>
   );
 };

@@ -33,3 +33,25 @@ export function today(): string {
 export function hasStarted(date: string, startTime: string, now: NowParts = nowParts()): boolean {
   return date < now.today || (date === now.today && startTime <= now.time);
 }
+
+/** Minutes from now until the given local date and time (negative once it passed). */
+export function minutesUntil(date: string, time: string, now: NowParts = nowParts()): number {
+  const toEpochMinutes = (d: string, t: string) => {
+    const [y, m, day] = d.split('-').map(Number);
+    const [h, min] = t.split(':').map(Number);
+    return Date.UTC(y, m - 1, day, h, min) / 60000;
+  };
+  return toEpochMinutes(date, time) - toEpochMinutes(now.today, now.time);
+}
+
+/** The local date and time ("YYYY-MM-DD", "HH:MM") that is `minutes` before the given one. */
+export function minutesBefore(date: string, time: string, minutes: number): NowParts {
+  const [y, m, day] = date.split('-').map(Number);
+  const [h, min] = time.split(':').map(Number);
+  const d = new Date(Date.UTC(y, m - 1, day, h, min) - minutes * 60000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return {
+    today: `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`,
+    time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
+  };
+}

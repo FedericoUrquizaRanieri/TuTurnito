@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
 import { OwnerReservationGrid } from '../components/owner/OwnerReservationGrid';
 import { FixedBookingsPanel } from '../components/owner/FixedBookingsPanel';
+import { ClosuresPanel } from '../components/owner/ClosuresPanel';
+import { PriceRulesPanel } from '../components/owner/PriceRulesPanel';
 import { CourtsConfigPanel } from '../components/owner/CourtsConfigPanel';
 import { StatCard } from '../components/StatCard';
 import { EmptyState } from '../components/EmptyState';
@@ -21,17 +23,21 @@ import {
   Check,
   X as XIcon,
   CheckCircle2,
+  BarChart3,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { ComplexSummary, Complex, Court, FixedBooking, ProfessorRequest } from '../types';
 import type { ReservationStats } from '../api/client';
 import { todayStr, weekRange, shortDateLabel } from '../lib/dates';
 
+
+// Charts library only loads when the tab is opened.
+const OwnerAnalyticsPanel = lazy(() => import('../components/owner/OwnerAnalyticsPanel').then((m) => ({ default: m.OwnerAnalyticsPanel })));
 export const OwnerDashboardPage: React.FC = () => {
   const { user, refreshUser } = useAuth();
   const toast = useToast();
 
-  const [activeTab, setActiveTab] = useState<'RESERVATIONS' | 'PROFESSORS' | 'SETTINGS'>('RESERVATIONS');
+  const [activeTab, setActiveTab] = useState<'RESERVATIONS' | 'ANALYTICS' | 'PROFESSORS' | 'SETTINGS'>('RESERVATIONS');
   const [selectedComplexId, setSelectedComplexId] = useState<string>('');
 
   // Complexes owned
@@ -72,6 +78,7 @@ export const OwnerDashboardPage: React.FC = () => {
     phone: '',
     openingHours: '',
     imageUrl: '',
+    cancellationHours: 0,
   });
   const [savingSettings, setSavingSettings] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
@@ -112,6 +119,7 @@ export const OwnerDashboardPage: React.FC = () => {
           phone: res.complex.phone || '',
           openingHours: res.complex.openingHours || '',
           imageUrl: res.complex.imageUrl || '',
+          cancellationHours: res.complex.cancellationHours ?? 0,
         });
       } catch (err) {
         toast.error(err, 'No se pudieron cargar los datos del complejo.');
@@ -385,6 +393,14 @@ export const OwnerDashboardPage: React.FC = () => {
             </button>
 
             <button
+              className={`tab-btn ${activeTab === 'ANALYTICS' ? 'active' : ''}`}
+              onClick={() => setActiveTab('ANALYTICS')}
+            >
+              <BarChart3 size={16} />
+              <span>Analíticas</span>
+            </button>
+
+            <button
               className={`tab-btn ${activeTab === 'PROFESSORS' ? 'active' : ''}`}
               onClick={() => setActiveTab('PROFESSORS')}
             >
@@ -461,12 +477,31 @@ export const OwnerDashboardPage: React.FC = () => {
               onChanged={handleConfigChanged}
             />
 
+            <ClosuresPanel
+              key={`closures-${selectedComplexId}`}
+              complexId={selectedComplexId}
+              onChanged={handleConfigChanged}
+            />
+
             <CourtsConfigPanel
               complexId={selectedComplexId}
               courts={courts}
               onSaved={handleConfigChanged}
             />
+
+            <PriceRulesPanel
+              key={`prices-${selectedComplexId}`}
+              complexId={selectedComplexId}
+              courts={courts}
+              onSaved={handleConfigChanged}
+            />
           </div>
+        )}
+
+        {activeTab === 'ANALYTICS' && (
+          <Suspense fallback={<div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--text-muted)' }}>Cargando analíticas...</div>}>
+            <OwnerAnalyticsPanel key={selectedComplexId} complexId={selectedComplexId} />
+          </Suspense>
         )}
 
         {/* TAB 3: PROFESORES Y SOLICITUDES */}
@@ -665,6 +700,27 @@ export const OwnerDashboardPage: React.FC = () => {
                       onChange={(e) => setSettingsForm({ ...settingsForm, openingHours: e.target.value })}
                     />
                   </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Cancelación desde la app</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>Los jugadores pueden cancelar hasta</span>
+                    <input
+                      type="number"
+                      className="form-input"
+                      min={0}
+                      max={72}
+                      step={1}
+                      style={{ width: '90px' }}
+                      value={settingsForm.cancellationHours}
+                      onChange={(e) => setSettingsForm({ ...settingsForm, cancellationHours: Math.max(0, Math.min(72, Math.round(Number(e.target.value) || 0))) })}
+                    />
+                    <span style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>horas antes del turno.</span>
+                  </div>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-subtle)', marginTop: '0.35rem' }}>
+                    Con 0 pueden cancelar hasta que empiece. Pasado el plazo tienen que escribirte; vos podés cancelar siempre desde la grilla.
+                  </p>
                 </div>
 
                 <div className="form-group">

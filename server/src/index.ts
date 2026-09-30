@@ -10,8 +10,10 @@ import schedulesRoutes from './routes/schedules.routes';
 import turnsRoutes from './routes/turns.routes';
 import reservationsRoutes from './routes/reservations.routes';
 import professorsRoutes from './routes/professors.routes';
+import openMatchesRoutes from './routes/openMatches.routes';
 import { authenticateToken } from './middleware/auth';
 import { HttpError } from './middleware/HttpError';
+import { startReminderJob } from './jobs/reminders';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -71,6 +73,7 @@ app.use('/api/complexes', complexesRoutes);
 app.use('/api/complexes', schedulesRoutes);
 app.use('/api/complexes', turnsRoutes);
 app.use('/api', reservationsRoutes);
+app.use('/api', openMatchesRoutes);
 app.use('/api/professors', professorsRoutes);
 
 // 404 Handler
@@ -104,6 +107,7 @@ if (process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`🎾 Servidor TuTurnito corriendo en http://localhost:${PORT}`);
   });
+  startReminderJob();
 }
 
 export default app;

@@ -9,6 +9,7 @@ export const RESERVED_SLUGS = new Set([
   'professor',
   'profile',
   'my-reservations',
+  'partidos',
   'complexes',
   'admin',
   'login',

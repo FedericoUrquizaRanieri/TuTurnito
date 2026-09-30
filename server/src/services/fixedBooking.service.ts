@@ -130,7 +130,7 @@ export async function deleteFixedBooking(complexId: string, fixedBookingId: stri
         where: { fixedBookingId, turn: { date: { gte: todayStr } } },
       });
       for (const r of upcoming) {
-        await releaseReservationTx(tx, r, { manualOverride: false });
+        await releaseReservationTx(tx, r, { manualOverride: false, cancelledBy: 'OWNER' });
       }
     }
   });

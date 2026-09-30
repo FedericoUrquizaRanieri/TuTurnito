@@ -7,9 +7,14 @@ export { app, prisma };
 /** Wipes every table, in FK-safe order — same order as prisma/seed.ts. */
 export async function resetDb() {
   await prisma.payment.deleteMany({});
+  await prisma.reservationCancellation.deleteMany({});
+  await prisma.matchPlayer.deleteMany({});
+  await prisma.openMatch.deleteMany({});
   await prisma.reservation.deleteMany({});
   await prisma.turn.deleteMany({});
   await prisma.fixedBooking.deleteMany({});
+  await prisma.closure.deleteMany({});
+  await prisma.priceRule.deleteMany({});
   await prisma.classEnrollment.deleteMany({});
   await prisma.classSchedule.deleteMany({});
   await prisma.court.deleteMany({});

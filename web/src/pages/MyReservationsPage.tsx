@@ -4,9 +4,12 @@ import { useToast } from '../context/ToastContext';
 import { api } from '../api/client';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock, MapPin, DollarSign, Trash2, Trophy, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
-import { Banner } from '../components/Banner';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { PaymentStatusBadge } from '../components/PaymentStatusBadge';
+import { WhatsappButton } from '../components/WhatsappButton';
+import { shortDateLabel } from '../lib/dates';
+import type { MyReservation } from '../types';
+import { MyOpenMatchPanel } from '../components/openMatch/MyOpenMatchPanel';
 
 const PAGE_SIZE = 4;
 
@@ -42,9 +45,8 @@ const Pagination: React.FC<{ page: number; totalPages: number; onChange: (page: 
 export const MyReservationsPage: React.FC = () => {
   const { user } = useAuth();
   const toast = useToast();
-  const [reservations, setReservations] = useState<any[]>([]);
+  const [reservations, setReservations] = useState<MyReservation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [upcomingPage, setUpcomingPage] = useState(0);
   const [pastPage, setPastPage] = useState(0);
 
@@ -67,15 +69,19 @@ export const MyReservationsPage: React.FC = () => {
   }, [user]);
 
   const handleCancelReservation = async (id: string) => {
-    if (!confirm('¿Estás seguro de cancelar tu reserva? El turno quedará disponible nuevamente para otros jugadores.')) return;
+    const r = reservations.find((x) => x.id === id);
+    const players = r?.openMatch?.players.length ?? 0;
+    const warning = players > 0 ? `
+
+Los ${players} jugador${players === 1 ? '' : 'es'} que se sumaron reciben un aviso por email.` : '';
+    if (!confirm(`¿Estás seguro de cancelar tu reserva? El turno quedará disponible nuevamente para otros jugadores.${warning}`)) return;
     try {
       await api.reservations.cancel(id);
-      setMessage({ type: 'success', text: 'Reserva cancelada exitosamente y turno liberado.' });
-      setTimeout(() => setMessage(null), 3500);
+      toast.success('Reserva cancelada. El turno quedó libre.');
       setUpcomingPage(0);
       fetchMyReservations();
-    } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || 'Error al cancelar la reserva.' });
+    } catch (err) {
+      toast.error(err, 'Error al cancelar la reserva.');
     }
   };
 
@@ -110,8 +116,6 @@ export const MyReservationsPage: React.FC = () => {
           Historial completo de tus partidos y clases en todos los complejos.
         </p>
       </div>
-
-      {message && <Banner type={message.type} text={message.text} />}
 
       {loading ? (
         <div style={{ textAlign: 'center', padding: '3rem 0', color: 'var(--text-muted)' }}>
@@ -184,7 +188,7 @@ export const MyReservationsPage: React.FC = () => {
                               {res.complexName}
                             </h3>
                             <span className="badge badge-role" style={{ fontSize: '0.7rem' }}>
-                              {res.type === 'CLASS' ? 'Clase' : 'Turno Libre'}
+                              {res.type === 'CLASS' ? 'Clase' : res.role === 'PLAYER_JOINED' ? 'Me sumé' : 'Turno Libre'}
                             </span>
                           </div>
                           <div style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--accent-secondary)' }}>
@@ -192,9 +196,11 @@ export const MyReservationsPage: React.FC = () => {
                           </div>
                         </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <PaymentStatusBadge status={res.paymentStatus} pendingLabel="PENDIENTE DE PAGO" />
-                        </div>
+                        {res.paymentStatus && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            <PaymentStatusBadge status={res.paymentStatus} pendingLabel="PENDIENTE DE PAGO" />
+                          </div>
+                        )}
                       </div>
 
                       <div style={{
@@ -224,21 +230,42 @@ export const MyReservationsPage: React.FC = () => {
                         </div>
                       </div>
 
+                      <MyOpenMatchPanel reservation={res} onChanged={fetchMyReservations} />
+
+                      {res.role === 'BOOKER' && (
                       <div style={{
                         display: 'flex',
-                        justifyContent: 'flex-end',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
                         gap: '0.75rem',
                         borderTop: '1px solid var(--border-subtle)',
                         paddingTop: '0.75rem',
                       }}>
-                        <button
-                          className="btn btn-danger btn-sm"
-                          onClick={() => handleCancelReservation(res.id)}
-                        >
-                          <Trash2 size={14} />
-                          <span>Cancelar reserva</span>
-                        </button>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                          {res.canCancel
+                            ? res.cancellationHours > 0 && res.type === 'PLAYER'
+                              ? `Podés cancelar desde la app hasta el ${shortDateLabel(res.cancelDeadline.date)} a las ${res.cancelDeadline.time} hs.`
+                              : 'Podés cancelar hasta que empiece el turno.'
+                            : `Ya pasó el plazo para cancelar desde la app (${res.cancellationHours} h antes). Hablá con el complejo${res.complexPhone ? ` al ${res.complexPhone}` : ''}.`}
+                        </span>
+                        {res.canCancel ? (
+                          <button
+                            className="btn btn-danger btn-sm"
+                            onClick={() => handleCancelReservation(res.id)}
+                          >
+                            <Trash2 size={14} />
+                            <span>Cancelar reserva</span>
+                          </button>
+                        ) : (
+                          <WhatsappButton
+                            phone={res.complexPhone}
+                            label="Escribir al complejo"
+                            text={`Hola! Tengo un turno el ${shortDateLabel(res.date)} a las ${res.startTime} en ${res.courtName} y necesito cancelarlo.`}
+                          />
+                        )}
                       </div>
+                      )}
                     </div>
                   );
                 })}
@@ -276,7 +303,7 @@ export const MyReservationsPage: React.FC = () => {
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                       <span style={{ fontWeight: 700 }}>${res.price.toLocaleString('es-AR')}</span>
-                      <PaymentStatusBadge status={res.paymentStatus} />
+                      {res.paymentStatus ? <PaymentStatusBadge status={res.paymentStatus} /> : <span className="badge badge-role">Me sumé</span>}
                     </div>
                   </div>
                 ))}

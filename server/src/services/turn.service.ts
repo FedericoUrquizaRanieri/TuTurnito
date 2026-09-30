@@ -2,7 +2,7 @@ import prisma from '../prisma';
 import { z } from 'zod';
 import { HttpError } from '../middleware/HttpError';
 import { today } from './clock';
-import { ensureTurnsForRange } from './schedule.service';
+import { ensureTurnsForRange, priceForTurn } from './schedule.service';
 
 export const turnOwnerUpdateSchema = z
   .object({
@@ -20,7 +20,7 @@ export type TurnOwnerUpdateInput = z.infer<typeof turnOwnerUpdateSchema>;
  * Owner edits one concrete turn from the reservations grid: block it, mark it
  * as a tournament, free it again, or change its price. A blocked/tournament
  * turn or a custom price is flagged `manualOverride` so the automatic re-sync
- * never reverts it; a turn freed back to the court's base price loses the
+ * never reverts it; a turn freed back to its rule/base price loses the
  * flag, so a fixed booking or class schedule that applies books it again.
  */
 export async function updateTurnByOwner(complexId: string, turnId: string, input: TurnOwnerUpdateInput) {
@@ -35,10 +35,16 @@ export async function updateTurnByOwner(complexId: string, turnId: string, input
   if (turn.state === 'OCCUPIED' || turn.reservation) {
     throw new HttpError(409, 'El turno tiene una reserva. Cancelala primero para modificarlo.');
   }
+  if (turn.closureId) {
+    throw new HttpError(409, 'El turno está bloqueado por un cierre del complejo. Eliminá el cierre para liberarlo.');
+  }
 
   const nextState = input.state ?? turn.state;
   const nextPrice = input.price ?? turn.price;
-  const manualOverride = nextState !== 'AVAILABLE' || nextPrice !== turn.court.basePrice;
+  // A custom price is one that differs from what the court's price rules say
+  // for this turn (its base price when no rule applies).
+  const rulePrice = await priceForTurn(turn.court, turn.date, turn.startTime);
+  const manualOverride = nextState !== 'AVAILABLE' || nextPrice !== rulePrice;
   // The label only makes sense on tournaments; it's cleared otherwise.
   const nextLabel = nextState === 'TOURNAMENT' ? (input.label !== undefined ? input.label?.trim() || null : turn.label) : null;
 

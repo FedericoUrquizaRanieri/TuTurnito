@@ -11,6 +11,7 @@ import { ProfessorDashboardPage } from './pages/ProfessorDashboardPage';
 import { MyReservationsPage } from './pages/MyReservationsPage';
 import { AuthPage } from './pages/AuthPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { OpenMatchesPage } from './pages/OpenMatchesPage';
 
 export const App: React.FC = () => {
   return (
@@ -27,6 +28,7 @@ export const App: React.FC = () => {
               <Route path="/professor" element={<ProfessorDashboardPage />} />
               <Route path="/auth" element={<AuthPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/partidos" element={<OpenMatchesPage />} />
               {/* Public complex page at the root (tuturnito.com/<slug>) — must stay
                   after every fixed route; reserved words are enforced server-side. */}
               <Route path="/:slug" element={<ComplexDetailPage />} />

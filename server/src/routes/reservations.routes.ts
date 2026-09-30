@@ -11,6 +11,7 @@ import {
   updateReservationPayment,
   getMyReservations,
 } from '../services/reservation.service';
+import { openMatchInputSchema } from '../services/openMatch.service';
 
 const router = Router();
 
@@ -22,6 +23,8 @@ const reservationSchema = z.object({
   guestEmail: z.string().email().optional().or(z.literal('')),
   type: z.enum(['PLAYER', 'CLASS']).default('PLAYER'),
   notes: z.string().optional(),
+  // "Me faltan jugadores": publish the booking as an open match right away.
+  openMatch: openMatchInputSchema.optional(),
 });
 
 const paymentUpdateSchema = z.object({
