@@ -270,6 +270,8 @@ export interface MyReservation {
   /** Local date and time until which the player can cancel from the app. */
   cancelDeadline: { date: string; time: string };
   canCancel: boolean;
+  /** The complex loaded it with my email: only the complex can cancel it. */
+  loadedByComplex: boolean;
   /** BOOKER: I made the reservation. PLAYER_JOINED: I joined its open match. */
   role: 'BOOKER' | 'PLAYER_JOINED';
   openMatch: MyOpenMatch | null;

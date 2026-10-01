@@ -44,9 +44,8 @@ describe('owner reservations panel', () => {
     expect(tournament.status).toBe(200);
     expect(tournament.body.turn).toMatchObject({ state: 'TOURNAMENT', label: 'Torneo de Primavera', price: 20000 });
 
-    const booking = await request(app)
-      .post(`/api/turns/${turn.id}/reservations`)
-      .send({ guestName: 'Intruso', guestPhone: '2911234567' });
+    const { agent: player } = await registerUser('JUGADOR');
+    const booking = await player.post(`/api/turns/${turn.id}/reservations`).send({});
     expect(booking.status).toBe(409);
 
     // The manual edit survives a re-sync of the courts.
@@ -67,7 +66,7 @@ describe('owner reservations panel', () => {
 
     const date = nextDateForDayOfWeek(6);
     const turn = await getTurn(complex.id, date, courtA.id, '11:00');
-    await request(app).post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Ocupado', guestPhone: '2911234567' });
+    await owner.post(`/api/turns/${turn.id}/reservations`).send({ guestName: 'Ocupado', guestPhone: '2911234567' });
 
     const res = await owner.patch(`/api/complexes/${complex.id}/turns/${turn.id}`).send({ state: 'BLOCKED' });
     expect(res.status).toBe(409);
@@ -104,7 +103,7 @@ describe('owner reservations panel', () => {
 
     // Somebody already booked the second week's slot: that date is reported as skipped.
     const taken = await getTurn(complex.id, secondDate, courtA.id, '20:00');
-    await request(app).post(`/api/turns/${taken.id}/reservations`).send({ guestName: 'Llegó Antes', guestPhone: '2911234567' });
+    await owner.post(`/api/turns/${taken.id}/reservations`).send({ guestName: 'Llegó Antes', guestPhone: '2911234567' });
 
     const create = await owner.post(`/api/complexes/${complex.id}/fixed-bookings`).send({
       courtId: courtA.id,
@@ -176,8 +175,8 @@ describe('owner reservations panel', () => {
 
     const near = await getTurn(complex.id, dateFromToday(1), courtA.id, '08:00');
     const far = await getTurn(complex.id, dateFromToday(12), courtA.id, '08:00');
-    const nearRes = await request(app).post(`/api/turns/${near.id}/reservations`).send({ guestName: 'Cerca', guestPhone: '2911234567' });
-    await request(app).post(`/api/turns/${far.id}/reservations`).send({ guestName: 'Lejos', guestPhone: '2911234567' });
+    const nearRes = await owner.post(`/api/turns/${near.id}/reservations`).send({ guestName: 'Cerca', guestPhone: '2911234567' });
+    await owner.post(`/api/turns/${far.id}/reservations`).send({ guestName: 'Lejos', guestPhone: '2911234567' });
     await owner.put(`/api/reservations/${nearRes.body.reservation.id}/payment`).send({ status: 'PAID' });
 
     const grid = await owner

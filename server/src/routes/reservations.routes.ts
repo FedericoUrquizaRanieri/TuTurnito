@@ -17,12 +17,14 @@ const router = Router();
 
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 
+// Players and professors book with their account's name and phone; these
+// fields are only read when the owner books on behalf of a client.
 const reservationSchema = z.object({
-  guestName: z.string().min(2, 'El nombre es requerido'),
-  guestPhone: z.string().min(6, 'El teléfono es requerido'),
-  guestEmail: z.string().email().optional().or(z.literal('')),
+  guestName: z.string().trim().min(2, 'El nombre es requerido').max(80).optional(),
+  guestPhone: z.string().trim().min(6, 'El teléfono es requerido').max(30).optional(),
+  guestEmail: z.string().email().max(254).optional().or(z.literal('')),
   type: z.enum(['PLAYER', 'CLASS']).default('PLAYER'),
-  notes: z.string().optional(),
+  notes: z.string().max(500).optional(),
   // "Me faltan jugadores": publish the booking as an open match right away.
   openMatch: openMatchInputSchema.optional(),
 });
@@ -32,13 +34,15 @@ const paymentUpdateSchema = z.object({
   amount: z.number().nonnegative().optional(),
 });
 
-// POST /api/turns/:turnId/reservations (Atomic reservation creation)
+// POST /api/turns/:turnId/reservations (Atomic reservation creation). Needs
+// an account: anonymous bookings let anyone fill every slot with fake phones.
 router.post(
   '/turns/:turnId/reservations',
+  requireAuth,
   validate(reservationSchema),
   asyncHandler(async (req: Request, res: Response) => {
     const turnId = req.params.turnId as string;
-    const result = await createReservation(turnId, req.body, req.user);
+    const result = await createReservation(turnId, req.body, req.user!);
 
     if (!result.success) {
       if (result.conflictType === 'NOT_FOUND') {

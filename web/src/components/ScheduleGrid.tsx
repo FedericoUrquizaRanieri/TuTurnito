@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Calendar as CalendarIcon, Sparkles, GraduationCap, Trophy } from 'lucide-react';
 import { ReservationModal } from './ReservationModal';
 import { hasStarted } from '../lib/dates';
@@ -16,6 +16,8 @@ interface ScheduleGridProps {
   cancellationHours?: number;
   turns?: PublicTurnData[];
   onRefreshTurns?: () => void;
+  /** Opens this turn's booking once it shows up (coming back from logging in), if still free. */
+  openTurnId?: string;
 }
 
 /** Public turn calendar for players & visitors: one card per court with the selected date's turns. */
@@ -26,8 +28,18 @@ export const ScheduleGrid: React.FC<ScheduleGridProps> = ({
   cancellationHours = 0,
   turns = [],
   onRefreshTurns,
+  openTurnId,
 }) => {
   const [selectedTurnForBooking, setSelectedTurnForBooking] = useState<PublicTurnData | null>(null);
+
+  const openedReturnTurn = useRef(false);
+  useEffect(() => {
+    if (!openTurnId || openedReturnTurn.current) return;
+    const turn = turns.find((t) => t.id === openTurnId);
+    if (!turn) return;
+    openedReturnTurn.current = true;
+    if (turn.state === 'AVAILABLE' && !hasStarted(turn.date, turn.startTime)) setSelectedTurnForBooking(turn);
+  }, [openTurnId, turns]);
 
   // Group turns by court
   const courtsInTurns = Array.from(

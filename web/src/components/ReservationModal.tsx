@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, ApiError } from '../api/client';
-import { X, Calendar, Clock, DollarSign, CheckCircle, AlertCircle, Sparkles, GraduationCap, Info } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { X, Calendar, Clock, DollarSign, CheckCircle, AlertCircle, Sparkles, GraduationCap, Info, LogIn, UserPlus, User as UserIcon } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import type { PublicTurn, OpenMatchInput } from '../types';
 import { OpenMatchFields } from './openMatch/OpenMatchFields';
 
@@ -25,12 +25,18 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   onSuccess,
   onClose,
 }) => {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [guestName, setGuestName] = useState(user?.name || '');
-  const [guestPhone, setGuestPhone] = useState(user?.phone || '');
-  const [guestEmail, setGuestEmail] = useState(user?.email || '');
+  // The owner books on behalf of a client and types their data; everyone
+  // else books with their own account (the server ignores anything else).
+  const isOwner = user?.role === 'DUEÑO';
+  const [guestName, setGuestName] = useState('');
+  const [guestPhone, setGuestPhone] = useState(isOwner ? '' : user?.phone || '');
+  const [guestEmail, setGuestEmail] = useState('');
+  // Accounts created without a phone give one once, saved to the profile.
+  const needsPhone = !isOwner && !user?.phone;
   const [isClass, setIsClass] = useState(isApprovedProfessor && user?.role === 'PROFESOR');
   const [notes, setNotes] = useState('');
   const [wantsPlayers, setWantsPlayers] = useState(false);
@@ -40,10 +46,20 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
 
+  // Back to this same turn after logging in or signing up.
+  const goToAuth = (mode: 'login' | 'register') => {
+    const back = `${location.pathname}?fecha=${turn.date}&turno=${turn.id}`;
+    navigate(`/auth?mode=${mode}&redirect=${encodeURIComponent(back)}`);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!guestName.trim() || !guestPhone.trim()) {
-      setError('Por favor ingresa tu nombre y teléfono de contacto.');
+    if (isOwner && (!guestName.trim() || !guestPhone.trim())) {
+      setError('Ingresá el nombre y el teléfono del cliente.');
+      return;
+    }
+    if (needsPhone && guestPhone.trim().length < 6) {
+      setError('Ingresá tu teléfono para que el complejo pueda contactarte.');
       return;
     }
 
@@ -51,10 +67,9 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
     setError(null);
 
     try {
+      if (needsPhone) await updateProfile({ phone: guestPhone.trim() });
       await api.reservations.create(turn.id, {
-        guestName: isClass ? `Clase - ${user?.name || guestName}` : guestName,
-        guestPhone,
-        guestEmail: guestEmail || undefined,
+        ...(isOwner ? { guestName, guestPhone, guestEmail: guestEmail || undefined } : {}),
         type: isClass ? 'CLASS' : 'PLAYER',
         notes: notes || undefined,
         openMatch: user && !isClass && wantsPlayers ? { ...openMatch, notes: openMatch.notes?.trim() || null } : undefined,
@@ -80,7 +95,37 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
           <X size={20} />
         </button>
 
-        {!confirmed ? (
+        {!user ? (
+          <div style={{ textAlign: 'center', padding: '0.5rem 0' }}>
+            <div style={{
+              width: '56px',
+              height: '56px',
+              borderRadius: '50%',
+              background: 'rgba(58, 122, 240, 0.15)',
+              color: 'var(--accent-primary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 1rem auto',
+            }}>
+              <LogIn size={28} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', fontWeight: 800, marginBottom: '0.5rem' }}>Iniciá sesión para reservar</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>
+              {turn.court.name} · {turn.date} · {turn.startTime} hs. Crear la cuenta lleva un minuto y después reservás con un clic.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <button className="btn btn-primary" onClick={() => goToAuth('login')} style={{ width: '100%', justifyContent: 'center' }}>
+                <LogIn size={16} />
+                <span>Iniciar sesión</span>
+              </button>
+              <button className="btn btn-secondary" onClick={() => goToAuth('register')} style={{ width: '100%', justifyContent: 'center' }}>
+                <UserPlus size={16} />
+                <span>Crear cuenta</span>
+              </button>
+            </div>
+          </div>
+        ) : !confirmed ? (
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1.25rem', paddingRight: '2rem' }}>
               <div style={{
@@ -182,41 +227,78 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 </div>
               )}
 
-              <div className="form-group">
-                <label className="form-label">Nombre y Apellido *</label>
-                <input
-                  type="text"
-                  className="form-input"
-                  required
-                  placeholder="Ej: Juan Pérez"
-                  value={guestName}
-                  onChange={(e) => setGuestName(e.target.value)}
-                />
-              </div>
+              {isOwner ? (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Nombre y Apellido del cliente *</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      required
+                      placeholder="Ej: Juan Pérez"
+                      value={guestName}
+                      onChange={(e) => setGuestName(e.target.value)}
+                    />
+                  </div>
 
-              <div className="form-row-2">
-                <div className="form-group">
-                  <label className="form-label">Teléfono / WhatsApp *</label>
-                  <input
-                    type="tel"
-                    className="form-input"
-                    required
-                    placeholder="Ej: 291 4567890"
-                    value={guestPhone}
-                    onChange={(e) => setGuestPhone(e.target.value)}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Email (opcional)</label>
-                  <input
-                    type="email"
-                    className="form-input"
-                    placeholder="usuario@email.com"
-                    value={guestEmail}
-                    onChange={(e) => setGuestEmail(e.target.value)}
-                  />
-                </div>
-              </div>
+                  <div className="form-row-2">
+                    <div className="form-group">
+                      <label className="form-label">Teléfono / WhatsApp *</label>
+                      <input
+                        type="tel"
+                        className="form-input"
+                        required
+                        placeholder="Ej: 291 4567890"
+                        value={guestPhone}
+                        onChange={(e) => setGuestPhone(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Email (opcional)</label>
+                      <input
+                        type="email"
+                        className="form-input"
+                        placeholder="usuario@email.com"
+                        value={guestEmail}
+                        onChange={(e) => setGuestEmail(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.6rem',
+                    border: '1px solid var(--border-subtle)',
+                    borderRadius: 'var(--radius-md)',
+                    padding: '0.75rem 1rem',
+                    marginBottom: '1.25rem',
+                    fontSize: '0.875rem',
+                  }}>
+                    <UserIcon size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    <span>
+                      Reservás como <strong>{user.name}</strong>
+                      {user.phone ? <> · {user.phone}</> : null}
+                    </span>
+                  </div>
+                  {needsPhone && (
+                    <div className="form-group">
+                      <label className="form-label">Tu teléfono / WhatsApp *</label>
+                      <input
+                        type="tel"
+                        className="form-input"
+                        required
+                        placeholder="Ej: 291 4567890"
+                        value={guestPhone}
+                        onChange={(e) => setGuestPhone(e.target.value)}
+                      />
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Lo guardamos en tu perfil para que el complejo pueda contactarte.</span>
+                    </div>
+                  )}
+                </>
+              )}
 
               <div className="form-group">
                 <label className="form-label">Notas o comentarios (opcional)</label>
@@ -229,7 +311,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                 />
               </div>
 
-              {user && !isClass && (
+              {!isOwner && !isClass && (
                 <div style={{
                   border: '1px solid var(--border-subtle)',
                   borderRadius: 'var(--radius-md)',
@@ -320,7 +402,7 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-              {user ? (
+              {!isOwner && (
                 <button
                   className="btn btn-primary"
                   onClick={() => {
@@ -330,17 +412,6 @@ export const ReservationModal: React.FC<ReservationModalProps> = ({
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
                   Ver mis reservas
-                </button>
-              ) : (
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    onClose();
-                    navigate('/auth?mode=register');
-                  }}
-                  style={{ width: '100%', justifyContent: 'center' }}
-                >
-                  Crear cuenta para gestionar mis turnos
                 </button>
               )}
 

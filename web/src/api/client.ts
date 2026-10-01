@@ -120,7 +120,12 @@ async function request<T = any>(endpoint: string, options: RequestInit = {}): Pr
   return data as T;
 }
 
-interface RegisterInput {
+/** Cloudflare Turnstile token, when the captcha is on. */
+interface CaptchaInput {
+  'cf-turnstile-response'?: string;
+}
+
+interface RegisterInput extends CaptchaInput {
   name: string;
   email: string;
   password: string;
@@ -128,11 +133,14 @@ interface RegisterInput {
   role: UserRole;
 }
 
-interface UpdateProfileInput {
+export interface UpdateProfileInput {
   name?: string;
   email?: string;
   phone?: string;
   emailReminders?: boolean;
+  /** Required when changing the email or the password. */
+  currentPassword?: string;
+  newPassword?: string;
 }
 
 interface AuthResponse {
@@ -175,7 +183,7 @@ export const api = {
   // Auth
   auth: {
     register: (body: RegisterInput) => request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(body) }),
-    login: (body: { email: string; password: string }) =>
+    login: (body: { email: string; password: string } & CaptchaInput) =>
       request<AuthResponse>('/auth/login', { method: 'POST', body: JSON.stringify(body) }),
     logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
     me: () => request<{ user: User }>('/auth/me'),
@@ -277,7 +285,8 @@ export const api = {
   reservations: {
     create: (
       turnId: string,
-      body: { guestName: string; guestPhone: string; guestEmail?: string; type?: 'PLAYER' | 'CLASS'; notes?: string; openMatch?: OpenMatchInput }
+      // guestName/guestPhone/guestEmail: only when the owner books for a client; players book with their account.
+      body: { guestName?: string; guestPhone?: string; guestEmail?: string; type?: 'PLAYER' | 'CLASS'; notes?: string; openMatch?: OpenMatchInput }
     ) =>
       request<CreateReservationResponse>(`/turns/${turnId}/reservations`, { method: 'POST', body: JSON.stringify(body) }),
     cancel: (id: string) => request<{ message: string }>(`/reservations/${id}`, { method: 'DELETE' }),

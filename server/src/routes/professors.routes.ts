@@ -41,10 +41,10 @@ const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_ANALYTICS_RANGE_DAYS = 366;
 
 const studentSchema = z.object({
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  phone: z.string().min(6, 'El teléfono es requerido'),
-  email: z.string().email().optional().or(z.literal('')),
-  notes: z.string().optional(),
+  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(80),
+  phone: z.string().min(6, 'El teléfono es requerido').max(30),
+  email: z.string().email().max(254).optional().or(z.literal('')),
+  notes: z.string().max(500).optional(),
 });
 
 const professorOnly = [requireAuth, requireRole('PROFESOR')];
@@ -104,7 +104,7 @@ router.put(
   asyncHandler(async (req: Request, res: Response) => {
     const requestId = req.params.requestId as string;
     const { status } = req.body;
-    const request = await resolveProfessorRequest(requestId, status);
+    const request = await resolveProfessorRequest(req.params.id as string, requestId, status);
     return res.json({
       message: `Solicitud ${status === 'APPROVED' ? 'aprobada' : 'rechazada'} exitosamente.`,
       request,

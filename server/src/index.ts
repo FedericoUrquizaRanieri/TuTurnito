@@ -2,7 +2,7 @@ import './env'; // must be the first import: loads .env and fails fast if requir
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes';
 import complexesRoutes from './routes/complexes.routes';
@@ -16,6 +16,13 @@ import { HttpError } from './middleware/HttpError';
 import { startReminderJob } from './jobs/reminders';
 
 const app = express();
+
+// Behind a hosting proxy (Render, Railway, nginx...) the client's IP comes in
+// X-Forwarded-For: set TRUST_PROXY to the number of proxies in front (usually
+// 1) so rate limits count real clients instead of the proxy.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+}
 const PORT = process.env.PORT || 4000;
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
@@ -44,6 +51,27 @@ const authLimiter = rateLimit({
   message: { error: 'Demasiados intentos. Probá de nuevo en unos minutos.' },
 });
 
+// One IP creating accounts in a row is a script making fake ones.
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipRateLimit,
+  message: { error: 'Se crearon demasiadas cuentas desde esta conexión. Probá de nuevo más tarde.' },
+});
+
+// Per account, not per IP: a whole club on the same WiFi can still book.
+const bookingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: skipRateLimit,
+  keyGenerator: (req) => (req.user ? `user:${req.user.id}` : ipKeyGenerator(req.ip ?? '')),
+  message: { error: 'Hiciste muchas reservas seguidas. Esperá unos minutos y probá de nuevo.' },
+});
+
 // Middlewares
 app.use(helmet());
 app.use(
@@ -52,11 +80,14 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json({ limit: '10mb' }));
+// Every payload is a small JSON form; a big one is someone probing.
+app.use(express.json({ limit: '100kb' }));
 app.use(cookieParser());
 app.use('/api', generalLimiter);
 app.use('/api/auth', authLimiter);
+app.use('/api/auth/register', registerLimiter);
 app.use(authenticateToken);
+app.post('/api/turns/:turnId/reservations', bookingLimiter);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {

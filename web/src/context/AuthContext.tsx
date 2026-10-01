@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { api, SESSION_EXPIRED_EVENT } from '../api/client';
+import { api, UpdateProfileInput, SESSION_EXPIRED_EVENT } from '../api/client';
 import type { UserRole } from '../types';
 
 export interface User {
@@ -31,12 +31,12 @@ export interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<User>;
-  register: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => Promise<User>;
+  login: (email: string, password: string, captchaToken?: string | null) => Promise<User>;
+  register: (data: { name: string; email: string; password: string; phone?: string; role: UserRole }, captchaToken?: string | null) => Promise<User>;
   logout: () => Promise<void>;
-  updateProfile: (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => Promise<void>;
+  updateProfile: (data: UpdateProfileInput) => Promise<void>;
   refreshUser: () => Promise<void>;
-  loginDemo: (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR') => Promise<User>;
+  loginDemo: (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR', captchaToken?: string | null) => Promise<User>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -67,14 +67,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const res = await api.auth.login({ email, password });
+  const captcha = (token?: string | null) => (token ? { 'cf-turnstile-response': token } : {});
+
+  const login = async (email: string, password: string, captchaToken?: string | null) => {
+    const res = await api.auth.login({ email, password, ...captcha(captchaToken) });
     setUser(res.user);
     return res.user;
   };
 
-  const register = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole }) => {
-    const res = await api.auth.register(data);
+  const register = async (data: { name: string; email: string; password: string; phone?: string; role: UserRole }, captchaToken?: string | null) => {
+    const res = await api.auth.register({ ...data, ...captcha(captchaToken) });
     setUser(res.user);
     return res.user;
   };
@@ -88,17 +90,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
-  const updateProfile = async (data: { name?: string; email?: string; phone?: string; emailReminders?: boolean }) => {
+  const updateProfile = async (data: UpdateProfileInput) => {
     const res = await api.auth.updateProfile(data);
     setUser((prev) => (prev ? { ...prev, ...res.user } : res.user));
   };
 
-  const loginDemo = async (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR') => {
+  const loginDemo = async (role: 'DUEÑO' | 'PROFESOR' | 'JUGADOR', captchaToken?: string | null) => {
     let email = 'jugador@padel.com';
     if (role === 'DUEÑO') email = 'dueno@padel.com';
     if (role === 'PROFESOR') email = 'profe@padel.com';
 
-    return login(email, 'padel123');
+    return login(email, 'padel123', captchaToken);
   };
 
   return (

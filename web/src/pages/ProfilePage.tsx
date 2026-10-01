@@ -10,6 +10,11 @@ export const ProfilePage: React.FC = () => {
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
   const [emailReminders, setEmailReminders] = useState(user?.emailReminders ?? true);
+  const [newPassword, setNewPassword] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+
+  // Changing the email or the password asks for the current one.
+  const needsCurrentPassword = email.trim().toLowerCase() !== (user?.email || '') || newPassword !== '';
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -20,7 +25,16 @@ export const ProfilePage: React.FC = () => {
     setMessage(null);
 
     try {
-      await updateProfile({ name, email, phone, emailReminders });
+      await updateProfile({
+        name,
+        email,
+        phone,
+        emailReminders,
+        ...(newPassword ? { newPassword } : {}),
+        ...(needsCurrentPassword ? { currentPassword } : {}),
+      });
+      setNewPassword('');
+      setCurrentPassword('');
       setMessage({ type: 'success', text: 'Perfil actualizado exitosamente.' });
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
@@ -111,6 +125,34 @@ export const ProfilePage: React.FC = () => {
               </span>
             </label>
           </div>
+
+          <div className="form-group">
+            <label className="form-label">Nueva contraseña (opcional)</label>
+            <input
+              type="password"
+              autoComplete="new-password"
+              minLength={8}
+              className="form-input"
+              placeholder="Dejalo vacío para no cambiarla"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+            />
+          </div>
+
+          {needsCurrentPassword && (
+            <div className="form-group">
+              <label className="form-label">Contraseña actual</label>
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                className="form-input"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Para cambiar el email o la contraseña confirmá que sos vos.</span>
+            </div>
+          )}
 
           <div className="form-group">
             <label className="form-label">Rol en la plataforma</label>

@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { joinComplexMailto } from '../lib/contact';
 
 export const Footer: React.FC = () => {
   return (
@@ -37,7 +38,7 @@ export const Footer: React.FC = () => {
             <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.6rem', fontSize: '0.875rem', color: 'var(--text-muted)' }}>
               <li><Link to="/" style={{ transition: 'color 0.15s' }}>Catálogo de Complejos</Link></li>
               <li><Link to="/my-reservations">Mis Reservas</Link></li>
-              <li><Link to="/auth?mode=register">Registrar mi Complejo</Link></li>
+              {joinComplexMailto && <li><a href={joinComplexMailto}>Sumar mi Complejo</a></li>}
               <li><Link to="/auth?mode=register">Unirme como Profesor</Link></li>
             </ul>
           </div>

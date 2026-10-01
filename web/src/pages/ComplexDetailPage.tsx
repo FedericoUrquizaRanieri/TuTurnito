@@ -7,7 +7,7 @@ import { ScheduleGrid, PublicTurnData } from '../components/ScheduleGrid';
 import { RoleGateCard } from '../components/RoleGateCard';
 import { DatePillStrip } from '../components/DatePillStrip';
 import { ComplexOpenMatches } from '../components/openMatch/ComplexOpenMatches';
-import { todayStr } from '../lib/dates';
+import { todayStr, addDays } from '../lib/dates';
 import { getComplexGallery } from '../lib/stockPhotos';
 import {
   MapPin,
@@ -21,6 +21,9 @@ import {
   AlertCircle,
   CalendarX,
 } from 'lucide-react';
+
+/** Days ahead the public calendar offers. */
+const DATE_STRIP_DAYS = 14;
 
 export const ComplexDetailPage: React.FC = () => {
   // Reached either at the public /<slug> URL or at the legacy /complexes/<id>
@@ -40,8 +43,17 @@ export const ComplexDetailPage: React.FC = () => {
   const [turns, setTurns] = useState<PublicTurnData[]>([]);
   const [loadingTurns, setLoadingTurns] = useState(false);
 
+  // Coming back from logging in to book (?fecha=&turno=): that day, with the
+  // turn's booking open. Only days the date strip shows are accepted.
+  const [returnTo] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    const date = params.get('fecha');
+    const valid = date && /^\d{4}-\d{2}-\d{2}$/.test(date) && date >= todayStr() && date <= addDays(todayStr(), DATE_STRIP_DAYS - 1);
+    return valid ? { date, turnId: params.get('turno') } : null;
+  });
+
   // Date selection state
-  const [selectedDate, setSelectedDate] = useState<string>(() => todayStr());
+  const [selectedDate, setSelectedDate] = useState<string>(() => returnTo?.date || todayStr());
 
   // Professor link state
   const [isApprovedProfessor, setIsApprovedProfessor] = useState(false);
@@ -60,7 +72,8 @@ export const ComplexDetailPage: React.FC = () => {
       const id = res.complex.id;
       setComplex(res.complex);
 
-      if (location.pathname !== `/${res.complex.slug}`) {
+      // Also drops the ?fecha=&turno= of a return from login once read.
+      if (location.pathname !== `/${res.complex.slug}` || location.search) {
         navigate(`/${res.complex.slug}`, { replace: true });
       }
 
@@ -83,10 +96,12 @@ export const ComplexDetailPage: React.FC = () => {
     }
   };
 
-  const fetchTurns = async () => {
+  // `quiet` refreshes without the loading placeholder, which would unmount the
+  // grid and the booking modal inside it (its confirmation screen included).
+  const fetchTurns = async (quiet = false) => {
     if (!complex) return;
     const id = complex.id;
-    setLoadingTurns(true);
+    if (!quiet) setLoadingTurns(true);
     try {
       const res = await api.turns.getByDateRange(id, selectedDate, selectedDate);
       setTurns(res.turns || []);
@@ -97,10 +112,12 @@ export const ComplexDetailPage: React.FC = () => {
     }
   };
 
+  // Depends on who is logged in, not on their profile: saving the phone from
+  // the booking modal mustn't reload the page (and close the modal).
   useEffect(() => {
     fetchComplexDetails();
     setActiveImage(0);
-  }, [idOrSlug, user]);
+  }, [idOrSlug, user?.id, user?.role]);
 
   useEffect(() => {
     if (complex) {
@@ -326,7 +343,7 @@ export const ComplexDetailPage: React.FC = () => {
 
         {/* Date Selector: next 14 days */}
         <div style={{ marginBottom: '2rem' }}>
-          <DatePillStrip from={todayStr()} count={14} selected={selectedDate} onSelect={setSelectedDate} />
+          <DatePillStrip from={todayStr()} count={DATE_STRIP_DAYS} selected={selectedDate} onSelect={setSelectedDate} />
         </div>
 
         {/* Public Turn Grid */}
@@ -341,7 +358,8 @@ export const ComplexDetailPage: React.FC = () => {
             isApprovedProfessor={isApprovedProfessor}
             cancellationHours={complex.cancellationHours ?? 0}
             turns={turns}
-            onRefreshTurns={fetchTurns}
+            onRefreshTurns={() => fetchTurns(true)}
+            openTurnId={returnTo?.turnId ?? undefined}
           />
         )}
       </section>

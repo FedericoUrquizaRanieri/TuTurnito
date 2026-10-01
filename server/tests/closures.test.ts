@@ -41,7 +41,7 @@ describe('closures (holidays)', () => {
     const { owner, complex, court } = await ownerWithComplex();
     const day = dateFromToday(5);
     const turn = (await turnsOn(complex.id, day)).find((t) => t.courtId === court.id && t.startTime === '18:00');
-    expect((await request(app).post(`/api/turns/${turn.id}/reservations`).send(GUEST)).status).toBe(201);
+    expect((await owner.post(`/api/turns/${turn.id}/reservations`).send(GUEST)).status).toBe(201);
 
     const conflict = await owner.post(`/api/complexes/${complex.id}/closures`).send({ startDate: day, endDate: day, reason: 'Lluvia' });
     expect(conflict.status).toBe(409);

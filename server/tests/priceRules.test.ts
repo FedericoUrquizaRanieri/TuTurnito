@@ -61,7 +61,7 @@ describe('price rules (precios por franja)', () => {
     const day = dateFromToday(2);
     const dow = parseDateString(day).dayOfWeek;
     const booked = await turnAt(complex.id, day, court.id, '19:00');
-    expect((await request(app).post(`/api/turns/${booked.id}/reservations`).send({ guestName: 'Ana', guestPhone: '2911234567' })).status).toBe(201);
+    expect((await owner.post(`/api/turns/${booked.id}/reservations`).send({ guestName: 'Ana', guestPhone: '2911234567' })).status).toBe(201);
 
     await owner.put(`/api/complexes/${complex.id}/price-rules`).send({
       rules: [{ courtId: null, daysOfWeek: [dow], startTime: '18:00', endTime: '23:00', price: 15000 }],
@@ -70,7 +70,7 @@ describe('price rules (precios por franja)', () => {
     expect((await prisma.turn.findUnique({ where: { id: booked.id } }))?.price).toBe(10000);
     const free = await turnAt(complex.id, day, court.id, '20:00');
     expect(free.price).toBe(15000);
-    const res = await request(app).post(`/api/turns/${free.id}/reservations`).send({ guestName: 'Beto', guestPhone: '2911234567' });
+    const res = await owner.post(`/api/turns/${free.id}/reservations`).send({ guestName: 'Beto', guestPhone: '2911234567' });
     expect(res.body.payment.amount).toBe(15000);
   });
 

@@ -11,20 +11,26 @@ import { generateUniqueSlug, isSlugTaken, slugFormatError } from '../services/sl
 const router = Router();
 
 const complexSchema = z.object({
-  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
-  location: z.string().min(2, 'La ubicación es requerida'),
-  address: z.string().min(3, 'La dirección es requerida'),
-  description: z.string().optional(),
-  phone: z.string().optional(),
-  openingHours: z.string().optional(),
-  imageUrl: z.string().optional(),
-  timezone: z.string().default('America/Argentina/Buenos_Aires'),
+  name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').max(100),
+  location: z.string().min(2, 'La ubicación es requerida').max(100),
+  address: z.string().min(3, 'La dirección es requerida').max(200),
+  description: z.string().max(2000).optional(),
+  phone: z.string().max(30).optional(),
+  openingHours: z.string().max(200).optional(),
+  // Shown as the complex's photo: only a real https address (or empty to remove it).
+  imageUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .refine((v) => v === '' || /^https:\/\/[^\s]+$/i.test(v), 'La imagen tiene que ser un link que empiece con https://')
+    .optional(),
+  timezone: z.string().max(64).default('America/Argentina/Buenos_Aires'),
 });
 
 // The owner may customize the public URL when editing; on create it's
 // always derived from the name.
 const complexUpdateSchema = complexSchema.partial().extend({
-  slug: z.string().trim().toLowerCase().optional(),
+  slug: z.string().trim().toLowerCase().max(80).optional(),
   // Players can cancel from the app up to this many hours before the turn (0 = until it starts).
   cancellationHours: z.number().int().min(0, 'Las horas no pueden ser negativas').max(72, 'Como máximo 72 horas').optional(),
 });

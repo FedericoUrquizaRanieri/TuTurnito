@@ -61,9 +61,11 @@ export async function getComplexProfessorRequests(complexId: string) {
   });
 }
 
-export async function resolveProfessorRequest(requestId: string, status: ProfessorRequestStatus) {
+export async function resolveProfessorRequest(complexId: string, requestId: string, status: ProfessorRequestStatus) {
   const request = await prisma.professorRequest.findUnique({ where: { id: requestId } });
-  if (!request) {
+  // The route checked that the caller owns `complexId`; a request aimed at
+  // another complex is none of their business.
+  if (!request || request.complexId !== complexId) {
     throw new HttpError(404, 'Solicitud no encontrada.');
   }
 
