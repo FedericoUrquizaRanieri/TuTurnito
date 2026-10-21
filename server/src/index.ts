@@ -13,6 +13,7 @@ import professorsRoutes from './routes/professors.routes';
 import openMatchesRoutes from './routes/openMatches.routes';
 import { authenticateToken } from './middleware/auth';
 import { HttpError } from './middleware/HttpError';
+import prisma from './prisma';
 import { startReminderJob } from './jobs/reminders';
 
 const app = express();
@@ -89,13 +90,21 @@ app.use('/api/auth/register', registerLimiter);
 app.use(authenticateToken);
 app.post('/api/turns/:turnId/reservations', bookingLimiter);
 
-// Health check endpoint
-app.get('/api/health', (req: Request, res: Response) => {
-  res.json({
-    status: 'ok',
-    app: 'TuTurnito API',
-    timestamp: new Date().toISOString(),
-  });
+// Health check endpoint. Queries the database on purpose: the keep-alive ping
+// (.github/workflows/keepalive.yml) hits it, and that activity is what stops
+// the free Supabase project from pausing.
+app.get('/api/health', async (req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({
+      status: 'ok',
+      app: 'TuTurnito API',
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Health check: database unreachable', error);
+    res.status(503).json({ status: 'error', app: 'TuTurnito API' });
+  }
 });
 
 // Route mountings
