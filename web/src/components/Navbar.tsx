@@ -1,3 +1,4 @@
+import { SHOW_DEMO } from '../lib/demo';
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -93,7 +94,7 @@ export const Navbar: React.FC = () => {
         {/* Right Section: Demo Quick Switcher & User Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <div className="desktop-nav" style={{ alignItems: 'center', gap: '0.75rem' }}>
-          {/* Quick Demo Selector */}
+          {SHOW_DEMO && (
           <div style={{ position: 'relative' }}>
             <button
               className="btn btn-secondary btn-sm"
@@ -167,6 +168,7 @@ export const Navbar: React.FC = () => {
               </div>
             )}
           </div>
+          )}
 
           {user ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>

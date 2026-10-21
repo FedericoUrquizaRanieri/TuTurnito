@@ -1,3 +1,4 @@
+import { SHOW_DEMO } from '../lib/demo';
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -261,7 +262,7 @@ export const AuthPage: React.FC = () => {
           </button>
         </form>
 
-        {/* 1-Click Demo Accounts */}
+        {SHOW_DEMO && (
         <div style={{
           marginTop: '2rem',
           borderTop: '1px solid var(--border-subtle)',
@@ -318,6 +319,7 @@ export const AuthPage: React.FC = () => {
             </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );
